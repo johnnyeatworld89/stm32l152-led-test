@@ -19,12 +19,12 @@ jobs:
         sudo apt update
         sudo apt install -y gcc-arm-none-eabi cmake make
 
-    - name: Build
-      run: |
-        mkdir build
-        cd build
-        cmake ..
-        make
+        - name: Build
+  run: |
+    mkdir build
+    cd build
+    cmake .. -DCMAKE_TOOLCHAIN_FILE=../arm-none-eabi.cmake
+    make
 
     - name: Create BIN HEX
       run: |
