@@ -11,30 +11,37 @@ jobs:
 
     steps:
 
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install ARM GCC
+    - name: Install ARM GCC and tools
       run: |
         sudo apt update
         sudo apt install -y gcc-arm-none-eabi cmake make
 
-        - name: Build
-  run: |
-    mkdir build
-    cd build
-    cmake .. -DCMAKE_TOOLCHAIN_FILE=../arm-none-eabi.cmake
-    make
-
-    - name: Create BIN HEX
+    - name: Build firmware
       run: |
-        arm-none-eabi-objcopy -O binary build/firmware.elf firmware.bin
-        arm-none-eabi-objcopy -O ihex build/firmware.elf firmware.hex
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE=../arm-none-eabi.cmake
+        make
 
-    - name: Upload Firmware
+    - name: Create binary files
+      run: |
+        arm-none-eabi-objcopy \
+          -O binary \
+          build/firmware.elf \
+          firmware.bin
+
+        arm-none-eabi-objcopy \
+          -O ihex \
+          build/firmware.elf \
+          firmware.hex
+
+    - name: Upload firmware files
       uses: actions/upload-artifact@v4
       with:
-        name: STM32-Firmware
+        name: STM32L152RE-Firmware
         path: |
           firmware.bin
           firmware.hex
