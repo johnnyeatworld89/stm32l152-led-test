@@ -1,153 +1,137 @@
-/**
-  ******************************************************************************
-  * @file    GPIO/GPIO_IOToggle/Src/main.c
-  * @brief   STM32L152RE LED/Button test
-  ******************************************************************************
-  */
-
 #include "main.h"
 
-/* Private variables ---------------------------------------------------------*/
-static GPIO_InitTypeDef GPIO_InitStruct;
+GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-/* Private function prototypes -----------------------------------------------*/
+
 void SystemClock_Config(void);
 static void Error_Handler(void);
 
 
-/**
-  * @brief  Main program
-  */
 int main(void)
 {
-  HAL_Init();
+    HAL_Init();
 
-  SystemClock_Config();
-
-
-  /* Enable GPIO clocks */
-  LED2_GPIO_CLK_ENABLE();
-  USER_BUTTON_GPIO_CLK_ENABLE();
+    SystemClock_Config();
 
 
-  /* Configure LED2 pin */
-  GPIO_InitStruct.Pin = LED2_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    /* GPIO Clocks aktivieren */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
 
-  HAL_GPIO_Init(LED2_GPIO_PORT, &GPIO_InitStruct);
-
-
-  /* Configure User Button pin */
-  GPIO_InitStruct.Pin = USER_BUTTON_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-
-  HAL_GPIO_Init(USER_BUTTON_GPIO_PORT, &GPIO_InitStruct);
-
-
-
-  while (1)
-  {
 
     /*
-     * User Button on NUCLEO-L152RE:
-     * pressed  = GPIO_PIN_RESET
-     * released = GPIO_PIN_SET
+     * LED Pin PA5 konfigurieren
      */
+    GPIO_InitStruct.Pin = GPIO_PIN_5;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 
-    if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_PORT, USER_BUTTON_PIN) == GPIO_PIN_RESET)
-    {
-      /* Fast blinking */
-      HAL_GPIO_TogglePin(LED2_GPIO_PORT, LED2_PIN);
-      HAL_Delay(100);
-    }
-    else
-    {
-      /* Slow blinking */
-      HAL_GPIO_TogglePin(LED2_GPIO_PORT, LED2_PIN);
-      HAL_Delay(500);
-    }
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  }
+
+    /*
+     * Schalter Pin PC13 konfigurieren
+     * Schalter gegen GND
+     */
+    GPIO_InitStruct.Pin = GPIO_PIN_13;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+
+
+    while (1)
+    {
+
+        /*
+         * Schalter gedrückt:
+         * PC13 = LOW
+         */
+        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_RESET)
+        {
+            /* LED EIN */
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+        }
+        else
+        {
+            /* LED AUS */
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+        }
+
+    }
 }
 
 
-/**
-  * @brief System Clock Configuration
-  *        SYSCLK = 32 MHz
-  */
+
 void SystemClock_Config(void)
 {
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
 
 
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+    RCC_OscInitStruct.HSICalibrationValue =
+        RCC_HSICALIBRATION_DEFAULT;
 
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
-  RCC_OscInitStruct.PLL.PLLDIV = RCC_PLL_DIV3;
-
-
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+    RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
+    RCC_OscInitStruct.PLL.PLLDIV = RCC_PLL_DIV3;
 
 
-  __HAL_RCC_PWR_CLK_ENABLE();
-
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-
-  while (__HAL_PWR_GET_FLAG(PWR_FLAG_VOS) != RESET)
-  {
-  }
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+        Error_Handler();
+    }
 
 
-  RCC_ClkInitStruct.ClockType =
-      RCC_CLOCKTYPE_SYSCLK |
-      RCC_CLOCKTYPE_HCLK |
-      RCC_CLOCKTYPE_PCLK1 |
-      RCC_CLOCKTYPE_PCLK2;
+    __HAL_RCC_PWR_CLK_ENABLE();
+
+    __HAL_PWR_VOLTAGESCALING_CONFIG(
+        PWR_REGULATOR_VOLTAGE_SCALE1);
 
 
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+    while (__HAL_PWR_GET_FLAG(PWR_FLAG_VOS) != RESET)
+    {
+    }
 
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    RCC_ClkInitStruct.ClockType =
+        RCC_CLOCKTYPE_SYSCLK |
+        RCC_CLOCKTYPE_HCLK |
+        RCC_CLOCKTYPE_PCLK1 |
+        RCC_CLOCKTYPE_PCLK2;
+
+
+    RCC_ClkInitStruct.SYSCLKSource =
+        RCC_SYSCLKSOURCE_PLLCLK;
+
+    RCC_ClkInitStruct.AHBCLKDivider =
+        RCC_SYSCLK_DIV1;
+
+    RCC_ClkInitStruct.APB1CLKDivider =
+        RCC_HCLK_DIV1;
+
+    RCC_ClkInitStruct.APB2CLKDivider =
+        RCC_HCLK_DIV1;
+
+
+    if (HAL_RCC_ClockConfig(
+        &RCC_ClkInitStruct,
+        FLASH_LATENCY_1) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 
-/**
-  * @brief Error Handler
-  */
+
 static void Error_Handler(void)
 {
-  while (1)
-  {
-  }
+    while(1)
+    {
+    }
 }
-
-
-#ifdef USE_FULL_ASSERT
-
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  while (1)
-  {
-  }
-}
-
-#endif
