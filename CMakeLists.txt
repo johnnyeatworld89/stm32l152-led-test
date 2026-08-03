@@ -29,6 +29,7 @@ target_include_directories(firmware.elf PRIVATE
     Drivers/STM32L1xx_HAL_Driver/Inc
     Drivers/CMSIS/Include
     Drivers/CMSIS/Device/ST/STM32L1xx/Include
+Drivers/BSP/STM32L1xx_Nucleo
 )
 
 target_compile_definitions(firmware.elf PRIVATE
