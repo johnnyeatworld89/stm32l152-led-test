@@ -18,7 +18,7 @@ set(CMSIS_SOURCES
     Drivers/CMSIS/Device/ST/STM32L1xx/Source/Templates/system_stm32l1xx.c
 )
 
-add_executable(firmware.elf
+add_executable(firmware
     Core/Src/main.c
     Core/Src/stm32l1xx_it.c
     Core/Src/system_stm32l1xx.c
@@ -53,7 +53,7 @@ target_link_options(firmware.elf PRIVATE
     -Wl,--gc-sections
 )
 
-set_target_properties(firmware.elf PROPERTIES
+set_target_properties(firmware PROPERTIES
     SUFFIX ".elf"
 )
 
