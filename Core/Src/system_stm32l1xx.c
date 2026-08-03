@@ -103,7 +103,7 @@
                is no need to call the 2 first functions listed above, since SystemCoreClock
                variable is updated automatically.
   */
-uint32_t SystemCoreClock        = 2097000U;
+uint32_t SystemCoreClock    = 32000000;
 const uint8_t PLLMulTable[9]    = {3U, 4U, 6U, 8U, 12U, 16U, 24U, 32U, 48U};
 const uint8_t AHBPrescTable[16] = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U, 2U, 3U, 4U, 6U, 7U, 8U, 9U};
 const uint8_t APBPrescTable[8]  = {0U, 0U, 0U, 0U, 1U, 2U, 3U, 4U};
@@ -139,6 +139,24 @@ const uint8_t APBPrescTable[8]  = {0U, 0U, 0U, 0U, 1U, 2U, 3U, 4U};
   */
 void SystemInit (void)
 {
+  /*!< Set MSION bit */
+  RCC->CR |= (uint32_t)0x00000100;
+
+  /*!< Reset SW[1:0], HPRE[3:0], PPRE1[2:0], PPRE2[2:0], MCOSEL[2:0] and MCOPRE[2:0] bits */
+  RCC->CFGR &= (uint32_t)0x88FFC00C;
+  
+  /*!< Reset HSION, HSEON, CSSON and PLLON bits */
+  RCC->CR &= (uint32_t)0xEEFEFFFE;
+
+  /*!< Reset HSEBYP bit */
+  RCC->CR &= (uint32_t)0xFFFBFFFF;
+
+  /*!< Reset PLLSRC, PLLMUL[3:0] and PLLDIV[1:0] bits */
+  RCC->CFGR &= (uint32_t)0xFF02FFFF;
+
+  /*!< Disable all interrupts */
+  RCC->CIR = 0x00000000;
+
 #ifdef DATA_IN_ExtSRAM
   SystemInit_ExtMemCtl(); 
 #endif /* DATA_IN_ExtSRAM */
@@ -251,25 +269,6 @@ void SystemCoreClockUpdate (void)
   */
 void SystemInit_ExtMemCtl(void)
 {
-  __IO uint32_t tmpreg = 0;
-
-  /* Flash 1 wait state */
-  FLASH->ACR |= FLASH_ACR_LATENCY;
-  
-  /* Power enable */
-  RCC->APB1ENR |= RCC_APB1ENR_PWREN;
-  
-  /* Delay after an RCC peripheral clock enabling */
-  tmpreg = READ_BIT(RCC->APB1ENR, RCC_APB1ENR_PWREN);
-
-  /* Select the Voltage Range 1 (1.8 V) */
-  PWR->CR = PWR_CR_VOS_0;
-  
-  /* Wait Until the Voltage Regulator is ready */
-  while((PWR->CSR & PWR_CSR_VOSF) != RESET)
-  {
-  }
-  
 /*-- GPIOs Configuration -----------------------------------------------------*/
 /*
  +-------------------+--------------------+------------------+------------------+
@@ -292,9 +291,6 @@ void SystemInit_ExtMemCtl(void)
 
   /* Enable GPIOD, GPIOE, GPIOF and GPIOG interface clock */
   RCC->AHBENR   = 0x000080D8;
-  
-  /* Delay after an RCC peripheral clock enabling */
-  tmpreg = READ_BIT(RCC->AHBENR, RCC_AHBENR_GPIODEN);
   
   /* Connect PDx pins to FSMC Alternate function */
   GPIOD->AFR[0]  = 0x00CC00CC;
@@ -348,11 +344,6 @@ void SystemInit_ExtMemCtl(void)
   /* Enable the FSMC interface clock */
   RCC->AHBENR    = 0x400080D8;
 
-  /* Delay after an RCC peripheral clock enabling */
-  tmpreg = READ_BIT(RCC->AHBENR, RCC_AHBENR_FSMCEN);
-  
-  (void)(tmpreg);
-  
   /* Configure and enable Bank1_SRAM3 */
   FSMC_Bank1->BTCR[4]  = 0x00001011;
   FSMC_Bank1->BTCR[5]  = 0x00000300;

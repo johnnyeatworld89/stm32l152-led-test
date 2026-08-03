@@ -1,33 +1,34 @@
+cmake_minimum_required(VERSION 3.22)
 
-cmake_minimum_required(VERSION 3.20)
-
-project(firmware C ASM)
+project(stm32l152-led-test C ASM)
 
 set(CMAKE_C_STANDARD 11)
 
-set(MCU_FAMILY STM32L1xx)
+enable_language(ASM)
 
-set(SOURCES
-    Core/Src/main.c
-    Core/Src/system_stm32l1xx.c
+# STM32 HAL sources
+file(GLOB HAL_SOURCES
+    Drivers/STM32L1xx_HAL_Driver/Src/*.c
+)
 
-    Drivers/STM32L1xx_HAL_Driver/Src/stm32l1xx_hal.c
-    Drivers/STM32L1xx_HAL_Driver/Src/stm32l1xx_hal_gpio.c
-    Drivers/STM32L1xx_HAL_Driver/Src/stm32l1xx_hal_rcc.c
+# CMSIS sources
+set(CMSIS_SOURCES
+    Drivers/CMSIS/Device/ST/STM32L1xx/Source/Templates/system_stm32l1xx.c
 )
 
 add_executable(firmware.elf
-    ${SOURCES}
+    Core/Src/main.c
+    Core/Src/stm32l1xx_it.c
+    Core/Src/system_stm32l1xx.c
     startup/startup_stm32l152xe.s
+    ${HAL_SOURCES}
 )
 
 target_include_directories(firmware.elf PRIVATE
     Core/Inc
-
+    Drivers/STM32L1xx_HAL_Driver/Inc
     Drivers/CMSIS/Include
     Drivers/CMSIS/Device/ST/STM32L1xx/Include
-
-    Drivers/STM32L1xx_HAL_Driver/Inc
 )
 
 target_compile_definitions(firmware.elf PRIVATE
@@ -38,7 +39,7 @@ target_compile_definitions(firmware.elf PRIVATE
 target_compile_options(firmware.elf PRIVATE
     -mcpu=cortex-m3
     -mthumb
-    -Os
+    -Wall
 )
 
 target_link_options(firmware.elf PRIVATE
@@ -49,6 +50,13 @@ target_link_options(firmware.elf PRIVATE
     -Wl,--gc-sections
 )
 
-set(CMAKE_EXE_LINKER_FLAGS
-    "${CMAKE_EXE_LINKER_FLAGS} -Wl,-Map=firmware.map"
+set_target_properties(firmware.elf PROPERTIES
+    SUFFIX ".elf"
 )
+
+add_custom_command(TARGET firmware.elf POST_BUILD
+    COMMAND arm-none-eabi-objcopy -O binary
+    ${CMAKE_BINARY_DIR}/firmware.elf
+    ${CMAKE_BINARY_DIR}/firmware.bin
+)
+
