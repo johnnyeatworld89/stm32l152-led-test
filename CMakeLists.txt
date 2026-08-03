@@ -26,7 +26,7 @@ add_executable(firmware
     ${HAL_SOURCES}
 )
 
-target_include_directories(firmware.elf PRIVATE
+target_include_directories(firmware PRIVATE
     Core/Inc
     Drivers/STM32L1xx_HAL_Driver/Inc
     Drivers/CMSIS/Include
@@ -34,18 +34,18 @@ target_include_directories(firmware.elf PRIVATE
 Drivers/BSP/STM32L1xx_Nucleo
 )
 
-target_compile_definitions(firmware.elf PRIVATE
+target_compile_definitions(firmware PRIVATE
     STM32L152xE
     USE_HAL_DRIVER
 )
 
-target_compile_options(firmware.elf PRIVATE
+target_compile_options(firmware PRIVATE
     -mcpu=cortex-m3
     -mthumb
     -Wall
 )
 
-target_link_options(firmware.elf PRIVATE
+target_link_options(firmware PRIVATE
     -T${CMAKE_SOURCE_DIR}/linker/STM32L152RETx_FLASH.ld
     -mcpu=cortex-m3
     -mthumb
@@ -57,7 +57,7 @@ set_target_properties(firmware PROPERTIES
     SUFFIX ".elf"
 )
 
-add_custom_command(TARGET firmware.elf POST_BUILD
+add_custom_command(TARGET firmware POST_BUILD
     COMMAND arm-none-eabi-objcopy -O binary
     ${CMAKE_BINARY_DIR}/firmware.elf
     ${CMAKE_BINARY_DIR}/firmware.bin
