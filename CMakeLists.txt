@@ -10,6 +10,8 @@ enable_language(ASM)
 file(GLOB HAL_SOURCES
     Drivers/STM32L1xx_HAL_Driver/Src/*.c
 )
+list(FILTER HAL_SOURCES EXCLUDE REGEX ".*timebase_tim_template\\.c")
+list(FILTER HAL_SOURCES EXCLUDE REGEX ".*hal_msp_template\\.c")
 
 # CMSIS sources
 set(CMSIS_SOURCES
