@@ -28,10 +28,12 @@ add_executable(firmware
 
 target_include_directories(firmware PRIVATE
     Core/Inc
+    Libraries/ST7735
+    Libraries/GFX
     Drivers/STM32L1xx_HAL_Driver/Inc
     Drivers/CMSIS/Include
     Drivers/CMSIS/Device/ST/STM32L1xx/Include
-Drivers/BSP/STM32L1xx_Nucleo
+    Drivers/BSP/STM32L1xx_Nucleo
 )
 
 target_compile_definitions(firmware PRIVATE
