@@ -22,6 +22,10 @@ add_executable(firmware
     Core/Src/main.c
     Core/Src/stm32l1xx_it.c
     Core/Src/system_stm32l1xx.c
+
+    Libraries/ST7735/st7735.c
+    Libraries/GFX/gfx.c
+
     startup/startup_stm32l152xe.s
     ${HAL_SOURCES}
 )
