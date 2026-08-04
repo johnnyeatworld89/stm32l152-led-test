@@ -1,18 +1,20 @@
 /**
   ******************************************************************************
   * @file    main.c
-  * @brief   STM32L152RE
-  *          - USER Button (PC13) schaltet interne LED (PA5)
-  *          - Externer Taster (PB1) dient als Tap-Tempo
-  *          - Externe LED (PB0) blinkt mit der getappten Frequenz
+  * @brief   STM32L152RE Nucleo - ST7735S SPI Display Test
   ******************************************************************************
   */
 
 #include "main.h"
+#include "st7735.h"
 
-GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* Global SPI handle used by st7735.c */
+SPI_HandleTypeDef hspi1;
 
+/* Private function prototypes */
 void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_SPI1_Init(void);
 static void Error_Handler(void);
 
 int main(void)
@@ -21,154 +23,118 @@ int main(void)
 
     SystemClock_Config();
 
-    /* GPIO Clocks */
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    __HAL_RCC_GPIOC_CLK_ENABLE();
+    MX_GPIO_Init();
+    MX_SPI1_Init();
 
-    /* ===========================================================
-       Interne LED (PA5)
-       =========================================================== */
+    HAL_Delay(200);
 
-    GPIO_InitStruct.Pin = GPIO_PIN_5;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-    /* ===========================================================
-       Externe LED (PB0)
-       =========================================================== */
-
-    GPIO_InitStruct.Pin = GPIO_PIN_0;
-
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-
-    /* ===========================================================
-       Interner USER Button (PC13)
-       =========================================================== */
-
-    GPIO_InitStruct.Pin = GPIO_PIN_13;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-
-    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-    /* ===========================================================
-       Externer Taster (PB1)
-       gegen GND
-       =========================================================== */
-
-    GPIO_InitStruct.Pin = GPIO_PIN_1;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-    /* ===========================================================
-       Variablen
-       =========================================================== */
-
-    uint8_t intButtonOld = GPIO_PIN_SET;
-    uint8_t extButtonOld = GPIO_PIN_SET;
-
-    uint8_t internalLedState = 0;
-    uint8_t externalLedState = 0;
-
-    /* ---------- Tap Tempo ---------- */
-
-    uint32_t lastTap = 0;
-    uint32_t intervalSum = 0;
-    uint32_t intervalCount = 0;
-
-    uint32_t blinkPeriod = 0;
-    uint32_t lastBlink = 0;
+    ST7735_Init();
 
     while (1)
     {
-        uint32_t now = HAL_GetTick();
+        ST7735_FillScreen(ST7735_RED);
+        HAL_Delay(1000);
 
-        /* =======================================================
-           Interner Button -> interne LED umschalten
-           ======================================================= */
+        ST7735_FillScreen(ST7735_GREEN);
+        HAL_Delay(1000);
 
-        uint8_t intButton = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);
+        ST7735_FillScreen(ST7735_BLUE);
+        HAL_Delay(1000);
 
-        if ((intButtonOld == GPIO_PIN_SET) &&
-            (intButton == GPIO_PIN_RESET))
-        {
-            internalLedState ^= 1;
+        ST7735_FillScreen(ST7735_WHITE);
+        HAL_Delay(1000);
 
-            HAL_GPIO_WritePin(GPIOA,
-                              GPIO_PIN_5,
-                              internalLedState ? GPIO_PIN_SET : GPIO_PIN_RESET);
-        }
+        ST7735_FillScreen(ST7735_BLACK);
+        HAL_Delay(1000);
+    }
+}
 
-        intButtonOld = intButton;
+/**
+  * @brief GPIO Initialization Function
+  *
+  * Display wiring:
+  * PA5 = SPI1_SCK
+  * PA7 = SPI1_MOSI
+  * PA4 = CS
+  * PB0 = DC/A0
+  * PB1 = RST
+  */
+static void MX_GPIO_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
 
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
 
-        /* =======================================================
-           Externer Taster -> Tap Tempo
-           ======================================================= */
+    /* Default levels before enabling display */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);    /* CS high */
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);  /* DC low */
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);    /* RST high */
 
-        uint8_t extButton = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1);
+    /* PA4 = CS */
+    GPIO_InitStruct.Pin = GPIO_PIN_4;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-        if ((extButtonOld == GPIO_PIN_SET) &&
-            (extButton == GPIO_PIN_RESET))
-        {
-            /* Erste Betätigung oder Timeout (>2 s) */
-            if ((lastTap == 0) || ((now - lastTap) > 2000))
-            {
-                lastTap = now;
-                intervalSum = 0;
-                intervalCount = 0;
-            }
-            else
-            {
-                uint32_t interval = now - lastTap;
+    /* PB0 = DC, PB1 = RST */
+    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-                lastTap = now;
+    /* PA5 = SPI1_SCK, PA7 = SPI1_MOSI */
+    GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_7;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+}
 
-                intervalSum += interval;
-                intervalCount++;
+/**
+  * @brief SPI1 Initialization Function
+  *
+  * ST7735S uses write-only SPI here:
+  * SCK  = PA5
+  * MOSI = PA7
+  * MISO unused
+  */
+static void MX_SPI1_Init(void)
+{
+    __HAL_RCC_SPI1_CLK_ENABLE();
 
-                blinkPeriod = intervalSum / intervalCount;
-            }
-        }
+    hspi1.Instance = SPI1;
+    hspi1.Init.Mode = SPI_MODE_MASTER;
+    hspi1.Init.Direction = SPI_DIRECTION_1LINE;
+    hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+    hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+    hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+    hspi1.Init.NSS = SPI_NSS_SOFT;
 
-        extButtonOld = extButton;
+    /*
+      Start conservatively.
+      With 32 MHz system clock and prescaler 16:
+      SPI clock is about 2 MHz.
+      If the display works, we can later increase this.
+    */
+    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
 
+    hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+    hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+    hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+    hspi1.Init.CRCPolynomial = 7;
 
-        /* =======================================================
-           Externe LED blinken
-           ======================================================= */
-
-        if (blinkPeriod > 0)
-        {
-            if ((now - lastBlink) >= (blinkPeriod / 2))
-            {
-                lastBlink = now;
-
-                externalLedState ^= 1;
-
-                HAL_GPIO_WritePin(GPIOB,
-                                  GPIO_PIN_0,
-                                  externalLedState ? GPIO_PIN_SET : GPIO_PIN_RESET);
-            }
-        }
-
-        /* einfache Entprellung */
-        HAL_Delay(10);
+    if (HAL_SPI_Init(&hspi1) != HAL_OK)
+    {
+        Error_Handler();
     }
 }
 
 /**
   * @brief System Clock Configuration
-  *        (unverändert aus deinem bisherigen Projekt übernehmen)
   */
 void SystemClock_Config(void)
 {
