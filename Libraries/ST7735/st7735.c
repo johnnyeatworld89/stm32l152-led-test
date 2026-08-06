@@ -104,31 +104,31 @@ static void ST7735_SetAddressWindow(
 {
     uint8_t data[4];
 
-    x0 += 2;
-    x1 += 2;
+    x0 += ST7735_XSTART;
+    x1 += ST7735_XSTART;
 
-    y0 += 1;
-    y1 += 1;
+    y0 += ST7735_YSTART;
+    y1 += ST7735_YSTART;
 
-    ST7735_WriteCommand(0x2A);
+    ST7735_WriteCommand(0x2A);     // CASET
 
-    data[0] = x0 >> 8;
+    data[0] = (x0 >> 8) & 0xFF;
     data[1] = x0 & 0xFF;
-    data[2] = x1 >> 8;
+    data[2] = (x1 >> 8) & 0xFF;
     data[3] = x1 & 0xFF;
 
     ST7735_WriteData(data, 4);
 
-    ST7735_WriteCommand(0x2B);
+    ST7735_WriteCommand(0x2B);     // RASET
 
-    data[0] = y0 >> 8;
+    data[0] = (y0 >> 8) & 0xFF;
     data[1] = y0 & 0xFF;
-    data[2] = y1 >> 8;
+    data[2] = (y1 >> 8) & 0xFF;
     data[3] = y1 & 0xFF;
 
     ST7735_WriteData(data, 4);
 
-    ST7735_WriteCommand(0x2C);
+    ST7735_WriteCommand(0x2C);     // RAMWR
 }
 void ST7735_FillScreen(uint16_t color)
 {
