@@ -1,4 +1,4 @@
-#define ST7735_H
+#ifndef ST7735_H
 #define ST7735_H
 
 #include "stm32l1xx_hal.h"
