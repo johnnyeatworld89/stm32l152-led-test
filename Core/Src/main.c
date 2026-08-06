@@ -1,4 +1,3 @@
-
 /**
   ******************************************************************************
   * @file    main.c
@@ -17,10 +16,13 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void Error_Handler(void);
-extern SPI_HandleTypeDef hspi1;
 
 int main(void)
-{int main(void)
+{
+    HAL_Init();
+
+    SystemClock_Config();
+
     MX_GPIO_Init();
     MX_SPI1_Init();
 
@@ -30,26 +32,29 @@ int main(void)
 
     ST7735_FillScreen(ST7735_BLACK);
 
-ST7735_DrawPixel(0, 0, ST7735_RED);
+    ST7735_DrawPixel(
+        0,
+        0,
+        ST7735_RED);
 
-ST7735_DrawPixel(
-    ST7735_WIDTH - 1,
-    0,
-    ST7735_GREEN);
+    ST7735_DrawPixel(
+        ST7735_WIDTH - 1,
+        0,
+        ST7735_GREEN);
 
-ST7735_DrawPixel(
-    0,
-    ST7735_HEIGHT - 1,
-    ST7735_BLUE);
+    ST7735_DrawPixel(
+        0,
+        ST7735_HEIGHT - 1,
+        ST7735_BLUE);
 
-ST7735_DrawPixel(
-    ST7735_WIDTH - 1,
-    ST7735_HEIGHT - 1,
-    ST7735_WHITE);
+    ST7735_DrawPixel(
+        ST7735_WIDTH - 1,
+        ST7735_HEIGHT - 1,
+        ST7735_WHITE);
 
-while (1)
-{
-}
+    while (1)
+    {
+    }
 }
 
 /**
@@ -116,15 +121,7 @@ static void MX_SPI1_Init(void)
     hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
     hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
     hspi1.Init.NSS = SPI_NSS_SOFT;
-
-    /*
-      Start conservatively.
-      With 32 MHz system clock and prescaler 16:
-      SPI clock is about 2 MHz.
-      If the display works, we can later increase this.
-    */
     hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
-
     hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
     hspi1.Init.TIMode = SPI_TIMODE_DISABLED;
     hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLED;
@@ -144,6 +141,14 @@ void SystemClock_Config(void)
     RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
 
+    __HAL_RCC_PWR_CLK_ENABLE();
+
+    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+    while (__HAL_PWR_GET_FLAG(PWR_FLAG_VOS) != RESET)
+    {
+    }
+
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
     RCC_OscInitStruct.HSIState = RCC_HSI_ON;
     RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -154,32 +159,15 @@ void SystemClock_Config(void)
     RCC_OscInitStruct.PLL.PLLDIV = RCC_PLL_DIV3;
 
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    while (1)
     {
         Error_Handler();
     }
-
-    __HAL_RCC_PWR_CLK_ENABLE();
-        ST7735_FillScreen(ST7735_RED);
-        HAL_Delay(1000);
-
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-        ST7735_FillScreen(ST7735_GREEN);
-        HAL_Delay(1000);
-
-    while (__HAL_PWR_GET_FLAG(PWR_FLAG_VOS) != RESET)
-    {
-    }
-        ST7735_FillScreen(ST7735_BLUE);
-        HAL_Delay(1000);
 
     RCC_ClkInitStruct.ClockType =
         RCC_CLOCKTYPE_SYSCLK |
         RCC_CLOCKTYPE_HCLK |
         RCC_CLOCKTYPE_PCLK1 |
         RCC_CLOCKTYPE_PCLK2;
-        ST7735_FillScreen(ST7735_WHITE);
-        HAL_Delay(1000);
 
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
     RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
@@ -189,8 +177,6 @@ void SystemClock_Config(void)
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
     {
         Error_Handler();
-        ST7735_FillScreen(ST7735_BLACK);
-        HAL_Delay(1000);
     }
 }
 
