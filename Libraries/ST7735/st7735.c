@@ -152,3 +152,30 @@ void ST7735_FillScreen(uint16_t color)
 
     ST7735_Unselect();
 }
+void ST7735_DrawPixel(
+    uint16_t x,
+    uint16_t y,
+    uint16_t color)
+{
+    if (x >= ST7735_WIDTH || y >= ST7735_HEIGHT)
+    {
+        return;
+    }
+
+    uint8_t pixel[2];
+
+    pixel[0] = color >> 8;
+    pixel[1] = color & 0xFF;
+
+    ST7735_SetAddressWindow(x, y, x, y);
+
+    ST7735_Select();
+    ST7735_DC_Data();
+
+    HAL_SPI_Transmit(&hspi1,
+                     pixel,
+                     2,
+                     HAL_MAX_DELAY);
+
+    ST7735_Unselect();
+}
