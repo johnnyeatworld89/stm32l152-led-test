@@ -36,7 +36,7 @@ target_include_directories(firmware PRIVATE
     Core/Inc
     Libraries/ST7735
     Libraries/GFX
-    Libraries/ost4m18132a/ost4ml8132a.c
+    Libraries/ost4m18132a/ost4ml8132a
 
     Drivers/STM32L1xx_HAL_Driver/Inc
     Drivers/CMSIS/Include
