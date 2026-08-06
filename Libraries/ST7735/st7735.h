@@ -1,4 +1,4 @@
-#ifndef ST7735_H
+#define ST7735_H
 #define ST7735_H
 
 #include "stm32l1xx_hal.h"
@@ -8,7 +8,7 @@
 #define ST7735_HEIGHT  160
 
 #define ST7735_XSTART 2
-#dwfine ST7735_YSTART 1
+#define ST7735_YSTART 1
 
 // Farben RGB565
 #define ST7735_BLACK   0x0000
