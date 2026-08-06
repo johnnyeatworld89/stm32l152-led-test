@@ -104,21 +104,27 @@ static void ST7735_SetAddressWindow(
 {
     uint8_t data[4];
 
+    x0 += 2;
+    x1 += 2;
+
+    y0 += 1;
+    y1 += 1;
+
     ST7735_WriteCommand(0x2A);
 
     data[0] = x0 >> 8;
-    data[1] = x0;
+    data[1] = x0 & 0xFF;
     data[2] = x1 >> 8;
-    data[3] = x1;
+    data[3] = x1 & 0xFF;
 
     ST7735_WriteData(data, 4);
 
     ST7735_WriteCommand(0x2B);
 
     data[0] = y0 >> 8;
-    data[1] = y0;
+    data[1] = y0 & 0xFF;
     data[2] = y1 >> 8;
-    data[3] = y1;
+    data[3] = y1 & 0xFF;
 
     ST7735_WriteData(data, 4);
 
