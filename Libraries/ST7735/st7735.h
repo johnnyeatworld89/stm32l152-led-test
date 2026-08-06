@@ -8,7 +8,7 @@
 #define ST7735_HEIGHT  160
 
 #define ST7735_XSTART 2
-#dwfinw ST7735_YSTART 1
+#dwfine ST7735_YSTART 1
 
 // Farben RGB565
 #define ST7735_BLACK   0x0000
