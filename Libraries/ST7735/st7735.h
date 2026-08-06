@@ -7,6 +7,9 @@
 #define ST7735_WIDTH   128
 #define ST7735_HEIGHT  160
 
+#define ST7735_XSTART 2
+#dwfinw ST7735_YSTART 1
+
 // Farben RGB565
 #define ST7735_BLACK   0x0000
 #define ST7735_BLUE    0x001F
