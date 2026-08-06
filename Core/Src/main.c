@@ -30,23 +30,28 @@ int main(void)
 
     ST7735_Init();
 
-    while (1)
-    {
-        ST7735_FillScreen(ST7735_RED);
-        HAL_Delay(1000);
+    ST7735_FillScreen(ST7735_BLACK);
 
-        ST7735_FillScreen(ST7735_GREEN);
-        HAL_Delay(1000);
+ST7735_DrawPixel(0, 0, ST7735_RED);
 
-        ST7735_FillScreen(ST7735_BLUE);
-        HAL_Delay(1000);
+ST7735_DrawPixel(
+    ST7735_WIDTH - 1,
+    0,
+    ST7735_GREEN);
 
-        ST7735_FillScreen(ST7735_WHITE);
-        HAL_Delay(1000);
+ST7735_DrawPixel(
+    0,
+    ST7735_HEIGHT - 1,
+    ST7735_BLUE);
 
-        ST7735_FillScreen(ST7735_BLACK);
-        HAL_Delay(1000);
-    }
+ST7735_DrawPixel(
+    ST7735_WIDTH - 1,
+    ST7735_HEIGHT - 1,
+    ST7735_WHITE);
+
+while (1)
+{
+}
 }
 
 /**
