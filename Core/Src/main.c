@@ -7,6 +7,8 @@
 
 #include "main.h"
 #include "st7735.h"
+#include "ost4ml8132a.h"
+
 
 /* Global SPI handle used by st7735.c */
 SPI_HandleTypeDef hspi1;
@@ -30,6 +32,9 @@ int main(void)
 
 ST7735_Init();
 
+LED_Init();
+
+ 
 while (1)
 {
     ST7735_FillScreen(ST7735_RED);
@@ -46,8 +51,32 @@ while (1)
 
     ST7735_FillScreen(ST7735_BLACK);
     HAL_Delay(1000);
+
+ LED_SetColor(0, 255, 0, 0);
+LED_SetColor(1, 255, 0, 0);
+LED_SetColor(2, 255, 0, 0);
+LED_Show();
+
+HAL_Delay(1000);
+
+LED_SetColor(0, 0, 255, 0);
+LED_SetColor(1, 0, 255, 0);
+LED_SetColor(2, 0, 255, 0);
+LED_Show();
+
+HAL_Delay(1000);
+
+LED_SetColor(0, 0, 0, 255);
+LED_SetColor(1, 0, 0, 255);
+LED_SetColor(2, 0, 0, 255);
+LED_Show();
+
+HAL_Delay(1000);
+
 }
 }
+
+
 
 /**
   * @brief GPIO Initialization Function
