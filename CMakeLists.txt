@@ -25,6 +25,8 @@ add_executable(firmware
 
     Libraries/ST7735/st7735.c
     Libraries/GFX/gfx.c
+Libraries/OST4ML8132A/ost4ml8132a.c
+
 
     startup/startup_stm32l152xe.s
     ${HAL_SOURCES}
@@ -34,6 +36,8 @@ target_include_directories(firmware PRIVATE
     Core/Inc
     Libraries/ST7735
     Libraries/GFX
+    Libraries/OST4ML8132A/ost4ml8132a.c
+
     Drivers/STM32L1xx_HAL_Driver/Inc
     Drivers/CMSIS/Include
     Drivers/CMSIS/Device/ST/STM32L1xx/Include
