@@ -1,4 +1,4 @@
-@@ -1,21 +1,7 @@
+
 /**
   ******************************************************************************
   * @file    main.c
@@ -20,8 +20,7 @@ static void Error_Handler(void);
 extern SPI_HandleTypeDef hspi1;
 
 int main(void)
-{
-@@ -26,179 +12,23 @@ int main(void)
+{int main(void)
     MX_GPIO_Init();
     MX_SPI1_Init();
 
