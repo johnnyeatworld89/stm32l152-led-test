@@ -1,5 +1,5 @@
-#ifndef OST4ML8132A_H
-#define OST4ML8132A_H
+#ifndef ost4m18132a
+#define ost4m18132a
 
 #include "stm32l1xx_hal.h"
 
