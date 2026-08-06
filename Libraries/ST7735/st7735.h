@@ -22,10 +22,7 @@ void ST7735_Init(void);
 void ST7735_FillScreen(uint16_t color);
 
 void ST7735_DrawPixel(
-2
 uint16_t x,
-3
 uint16_t y,
-4
 uint16_t color);
 #endif
