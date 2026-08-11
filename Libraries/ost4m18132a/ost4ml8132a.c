@@ -89,6 +89,6 @@ void LED_Show(void)
 
     __enable_irq();
 
-    HAL_Delay(1);
+    HAL_Delay(10);
 }
 
