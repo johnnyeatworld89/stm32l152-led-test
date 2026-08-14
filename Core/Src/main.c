@@ -37,25 +37,35 @@ LED_Init();
  
 while (1)
 {
-    ST7735_FillScreen(ST7735_RED);
+    LED_SetColor(0, 255, 0, 0);
+    LED_SetColor(1, 0, 0, 0);
+    LED_SetColor(2, 0, 0, 0);
+    LED_Show();
+
     HAL_Delay(1000);
 
-    ST7735_FillScreen(ST7735_GREEN);
+    LED_SetColor(0, 0, 255, 0);
+    LED_SetColor(1, 0, 0, 0);
+    LED_SetColor(2, 0, 0, 0);
+    LED_Show();
+
     HAL_Delay(1000);
 
-    ST7735_FillScreen(ST7735_BLUE);
+    LED_SetColor(0, 0, 0, 255);
+    LED_SetColor(1, 0, 0, 0);
+    LED_SetColor(2, 0, 0, 0);
+    LED_Show();
+
     HAL_Delay(1000);
 
-    ST7735_FillScreen(ST7735_WHITE);
-    HAL_Delay(1000);
+    LED_SetColor(0, 0, 0, 0);
+    LED_SetColor(1, 0, 0, 0);
+    LED_SetColor(2, 0, 0, 0);
+    LED_Show();
 
-    ST7735_FillScreen(ST7735_BLACK);
     HAL_Delay(1000);
+}
 
-LED_SetColor(0, 255, 0, 0);
-LED_SetColor(1, 0, 0, 0);
-LED_SetColor(2, 0, 0, 0);
-LED_Show();
 
 while(1)
 {
