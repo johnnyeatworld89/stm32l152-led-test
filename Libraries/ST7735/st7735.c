@@ -1,4 +1,5 @@
 #include "st7735.h"
+#include <stdlib.h>
 
 // CS
 #define ST7735_CS_PORT     GPIOA
@@ -184,4 +185,215 @@ void ST7735_DrawPixel(
                      HAL_MAX_DELAY);
 
     ST7735_Unselect();
+}
+
+void ST7735_DrawLine(
+    int16_t x0,
+    int16_t y0,
+    int16_t x1,
+    int16_t y1,
+    uint16_t color)
+{
+    int16_t dx = x1 - x0;
+    int16_t dy = y1 - y0;
+
+    int16_t sx = (dx >= 0) ? 1 : -1;
+    int16_t sy = (dy >= 0) ? 1 : -1;
+
+    dx = (dx >= 0) ? dx : -dx;
+    dy = (dy >= 0) ? dy : -dy;
+
+    int16_t err = dx - dy;
+
+    while (1)
+    {
+        ST7735_DrawPixel(x0, y0, color);
+
+        if (x0 == x1 && y0 == y1)
+            break;
+
+        int16_t e2 = 2 * err;
+
+        if (e2 > -dy)
+        {
+            err -= dy;
+            x0 += sx;
+        }
+
+        if (e2 < dx)
+        {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+
+void ST7735_DrawRect(
+    uint16_t x,
+    uint16_t y,
+    uint16_t w,
+    uint16_t h,
+    uint16_t color)
+{
+    if (w == 0 || h == 0)
+        return;
+
+    ST7735_DrawLine(
+        x,
+        y,
+        x + w - 1,
+        y,
+        color);
+
+    ST7735_DrawLine(
+        x,
+        y + h - 1,
+        x + w - 1,
+        y + h - 1,
+        color);
+
+    ST7735_DrawLine(
+        x,
+        y,
+        x,
+        y + h - 1,
+        color);
+
+    ST7735_DrawLine(
+        x + w - 1,
+        y,
+        x + w - 1,
+        y + h - 1,
+        color);
+}
+
+
+void ST7735_FillRect(
+    uint16_t x,
+    uint16_t y,
+    uint16_t w,
+    uint16_t h,
+    uint16_t color)
+{
+    if (w == 0 || h == 0)
+        return;
+
+    for (uint16_t yy = y; yy < y + h; yy++)
+    {
+        for (uint16_t xx = x; xx < x + w; xx++)
+        {
+            ST7735_DrawPixel(xx, yy, color);
+        }
+    }
+}
+
+
+void ST7735_DrawArrow(
+    int16_t x0,
+    int16_t y0,
+    int16_t x1,
+    int16_t y1,
+    uint16_t color)
+{
+    ST7735_DrawLine(
+        x0,
+        y0,
+        x1,
+        y1,
+        color);
+
+    /*
+     * Einfacher Pfeilkopf.
+     *
+     * Die Richtung wird anhand der dominanten
+     * X/Y-Richtung bestimmt.
+     */
+
+    int16_t dx = x1 - x0;
+    int16_t dy = y1 - y0;
+
+    if (dx == 0 && dy == 0)
+        return;
+
+    const int16_t arrowSize = 4;
+
+    if (abs(dx) >= abs(dy))
+    {
+        if (dx > 0)
+        {
+            /* Pfeil nach rechts */
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 - arrowSize,
+                y1 - arrowSize,
+                color);
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 - arrowSize,
+                y1 + arrowSize,
+                color);
+        }
+        else
+        {
+            /* Pfeil nach links */
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 + arrowSize,
+                y1 - arrowSize,
+                color);
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 + arrowSize,
+                y1 + arrowSize,
+                color);
+        }
+    }
+    else
+    {
+        if (dy > 0)
+        {
+            /* Pfeil nach unten */
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 - arrowSize,
+                y1 - arrowSize,
+                color);
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 + arrowSize,
+                y1 - arrowSize,
+                color);
+        }
+        else
+        {
+            /* Pfeil nach oben */
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 - arrowSize,
+                y1 + arrowSize,
+                color);
+
+            ST7735_DrawLine(
+                x1,
+                y1,
+                x1 + arrowSize,
+                y1 + arrowSize,
+                color);
+        }
+    }
 }
