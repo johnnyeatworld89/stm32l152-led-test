@@ -28,4 +28,32 @@ void ST7735_DrawPixel(
 uint16_t x,
 uint16_t y,
 uint16_t color);
+
+void ST7735_DrawLine(
+    int16_t x0,
+    int16_t y0,
+    int16_t x1,
+    int16_t y1,
+    uint16_t color);
+
+void ST7735_DrawRect(
+    uint16_t x,
+    uint16_t y,
+    uint16_t w,
+    uint16_t h,
+    uint16_t color);
+
+void ST7735_FillRect(
+    uint16_t x,
+    uint16_t y,
+    uint16_t w,
+    uint16_t h,
+    uint16_t color);
+
+void ST7735_DrawArrow(
+    int16_t x0,
+    int16_t y0,
+    int16_t x1,
+    int16_t y1,
+    uint16_t color);
 #endif
