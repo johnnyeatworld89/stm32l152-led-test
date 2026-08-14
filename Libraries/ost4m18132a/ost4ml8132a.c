@@ -5,6 +5,21 @@
 
 static RGB_t leds[LED_COUNT];
 
+/
+   Direkter GPIO-Zugriff für PA8.
+   Viel schneller als HAL_GPIO_WritePin().
+/
+#define LED_HIGH()  (GPIOA->BSRR = GPIO_PIN_8)
+#define LED_LOW()   (GPIOA->BRR  = GPIO_PIN_8)
+
+static void delay_cycles(volatile uint32_t cycles)
+{
+    while (cycles--)
+    {
+        __NOP();
+    }
+}
+
 void LED_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -18,45 +33,49 @@ void LED_Init(void)
 
     HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
-    HAL_GPIO_WritePin(LED_PORT,
-                      LED_PIN,
-                      GPIO_PIN_RESET);
+    LED_LOW();
+
+    /
+      Latch/Reset-Zeit.
+      Datenblatt nennt ca. 3 ms Latch-Zeit.
+    /
+    HAL_Delay(5);
 }
 
+/
+   Erster Timing-Versuch, WS2812-ähnlich.
+   Bei 32 MHz Systemtakt:
+   1 CPU-Zyklus = ca. 31,25 ns.
+/
 static void LED_SendBit(uint8_t bit)
 {
-    if(bit)
+    if (bit)
     {
-        HAL_GPIO_WritePin(LED_PORT,
-                          LED_PIN,
-                          GPIO_PIN_SET);
-
-        for(volatile int i=0;i<20;i++);
-
-        HAL_GPIO_WritePin(LED_PORT,
-                          LED_PIN,
-                          GPIO_PIN_RESET);
-
-        for(volatile int i=0;i<10;i++);
+        /*
+          Logische 1:
+          High länger, Low kürzer
+        /
+        LED_HIGH();
+        delay_cycles(18);
+        LED_LOW();
+        delay_cycles(10);
     }
     else
     {
-        HAL_GPIO_WritePin(LED_PORT,
-                          LED_PIN,
-                          GPIO_PIN_SET);
-
-        for(volatile int i=0;i<8;i++);
-
-        HAL_GPIO_WritePin(LED_PORT,
-                          LED_PIN,
-                          GPIO_PIN_RESET);
-
-        for(volatile int i=0;i<20;i++);
+        /
+          Logische 0:
+          High kürzer, Low länger
+        /
+        LED_HIGH();
+        delay_cycles(7);
+        LED_LOW();
+        delay_cycles(20);
     }
 }
+
 static void LED_SendByte(uint8_t data)
 {
-    for(int i = 7; i >= 0; i--)
+    for (int8_t i = 7; i >= 0; i--)
     {
         LED_SendBit((data >> i) & 0x01);
     }
@@ -67,7 +86,7 @@ void LED_SetColor(uint8_t index,
                   uint8_t g,
                   uint8_t b)
 {
-    if(index >= LED_COUNT)
+    if (index >= LED_COUNT)
     {
         return;
     }
@@ -76,11 +95,16 @@ void LED_SetColor(uint8_t index,
     leds[index].g = g;
     leds[index].b = b;
 }
+
 void LED_Show(void)
 {
     __disable_irq();
 
-    for(uint8_t i = 0; i < LED_COUNT; i++)
+    /
+      Viele intelligente RGB-LEDs verwenden GRB-Reihenfolge.
+      Falls Farben später vertauscht sind, ändern wir hier die Reihenfolge.
+    /
+    for (uint8_t i = 0; i < LED_COUNT; i++)
     {
         LED_SendByte(leds[i].g);
         LED_SendByte(leds[i].r);
@@ -89,6 +113,8 @@ void LED_Show(void)
 
     __enable_irq();
 
-    HAL_Delay(10);
+    /
+      Latch-Zeit laut Datenblatt im ms-Bereich.
+    */
+    HAL_Delay(5);
 }
-
