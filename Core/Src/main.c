@@ -30,48 +30,18 @@ int main(void)
 
     HAL_Delay(200);
 
-ST7735_Init();
+    ST7735_Init();
+    LED_Init();
 
-LED_Init();
+    ST7735_FillScreen(ST7735_BLACK);
 
- 
-while (1)
-{
-    LED_SetColor(0, 255, 0, 0);
-    LED_SetColor(1, 0, 0, 0);
-    LED_SetColor(2, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
-
-    LED_SetColor(0, 0, 255, 0);
-    LED_SetColor(1, 0, 0, 0);
-    LED_SetColor(2, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
-
-    LED_SetColor(0, 0, 0, 255);
-    LED_SetColor(1, 0, 0, 0);
-    LED_SetColor(2, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
-
-    LED_SetColor(0, 0, 0, 0);
-    LED_SetColor(1, 0, 0, 0);
-    LED_SetColor(2, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
+    while (1)
+    {
+        // Nichts senden
+        // PA8 bleibt durch LED_Init() dauerhaft LOW
+    }
 }
 
-
-while(1)
-{
-}
-
-}
 
 
 
