@@ -35,23 +35,18 @@ void LED_Init(void)
 
     LED_LOW();
 
-    /
+    /*
       Latch/Reset-Zeit.
-      Datenblatt nennt ca. 3 ms Latch-Zeit.
+      Das gibt der LED Zeit, den Ruhezustand zu erkennen.
     /
     HAL_Delay(5);
 }
 
-/
-   Erster Timing-Versuch, WS2812-ähnlich.
-   Bei 32 MHz Systemtakt:
-   1 CPU-Zyklus = ca. 31,25 ns.
-/
 static void LED_SendBit(uint8_t bit)
 {
     if (bit)
     {
-        /*
+        /
           Logische 1:
           High länger, Low kürzer
         /
@@ -114,7 +109,7 @@ void LED_Show(void)
     __enable_irq();
 
     /
-      Latch-Zeit laut Datenblatt im ms-Bereich.
+      Latch-Zeit nach der Datenübertragung.
     */
     HAL_Delay(5);
 }
