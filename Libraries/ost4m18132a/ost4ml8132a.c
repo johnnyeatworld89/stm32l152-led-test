@@ -5,10 +5,6 @@
 
 static RGB_t leds[LED_COUNT];
 
-/
-   Direkter GPIO-Zugriff für PA8.
-   Viel schneller als HAL_GPIO_WritePin().
-/
 #define LED_HIGH()  (GPIOA->BSRR = GPIO_PIN_8)
 #define LED_LOW()   (GPIOA->BRR  = GPIO_PIN_8)
 
@@ -35,10 +31,6 @@ void LED_Init(void)
 
     LED_LOW();
 
-    /*
-      Latch/Reset-Zeit.
-      Das gibt der LED Zeit, den Ruhezustand zu erkennen.
-    /
     HAL_Delay(5);
 }
 
@@ -46,10 +38,6 @@ static void LED_SendBit(uint8_t bit)
 {
     if (bit)
     {
-        /
-          Logische 1:
-          High länger, Low kürzer
-        /
         LED_HIGH();
         delay_cycles(18);
         LED_LOW();
@@ -57,10 +45,6 @@ static void LED_SendBit(uint8_t bit)
     }
     else
     {
-        /
-          Logische 0:
-          High kürzer, Low länger
-        /
         LED_HIGH();
         delay_cycles(7);
         LED_LOW();
@@ -95,10 +79,6 @@ void LED_Show(void)
 {
     __disable_irq();
 
-    /
-      Viele intelligente RGB-LEDs verwenden GRB-Reihenfolge.
-      Falls Farben später vertauscht sind, ändern wir hier die Reihenfolge.
-    /
     for (uint8_t i = 0; i < LED_COUNT; i++)
     {
         LED_SendByte(leds[i].g);
@@ -108,8 +88,5 @@ void LED_Show(void)
 
     __enable_irq();
 
-    /
-      Latch-Zeit nach der Datenübertragung.
-    */
     HAL_Delay(5);
 }
