@@ -38,6 +38,50 @@ int main(void)
     while (1)
     {
         // Nichts senden
+     ST7735_FillScreen(ST7735_BLACK);
+
+/* Gefüllte Box */
+ST7735_FillRect(
+    10,
+    10,
+    50,
+    30,
+    ST7735_BLUE);
+
+/* Rahmen */
+ST7735_DrawRect(
+    10,
+    10,
+    50,
+    30,
+    ST7735_WHITE);
+
+/* Zweite Box */
+ST7735_FillRect(
+    60,
+    100,
+    50,
+    30,
+    ST7735_RED);
+
+ST7735_DrawRect(
+    60,
+    100,
+    50,
+    30,
+    ST7735_WHITE);
+
+/* Pfeil */
+ST7735_DrawArrow(
+    35,
+    40,
+    35,
+    100,
+    ST7735_WHITE);
+
+while (1)
+{
+}
         // PA8 bleibt durch LED_Init() dauerhaft LOW
     }
 }
