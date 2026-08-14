@@ -1,5 +1,5 @@
-#ifndef ost4m18132a
-#define ost4m18132a
+#ifndef OST4ML8132A_H
+#define OST4ML8132A_H
 
 #include "stm32l1xx_hal.h"
 
@@ -22,4 +22,3 @@ void LED_SetColor(uint8_t index,
 void LED_Show(void);
 
 #endif
-
