@@ -161,7 +161,7 @@ void ST7735_Init(void)
      * Rotation 0:
      * 128 x 160
      */
-    ST7735_SetRotation(1);
+    ST7735_SetRotation(0);
 
     /*
      * 16-bit RGB565
@@ -194,13 +194,14 @@ void ST7735_SetRotation(uint8_t rotation)
     switch (rotation)
     {
         /*
-         * Portrait
+         * Rotation 0
          *
+         * Portrait
          * 128 x 160
          */
         case 0:
 
-            madctl = 0xC0;
+            madctl = 0x00;
 
             ST7735_WIDTH  = 128;
             ST7735_HEIGHT = 160;
@@ -212,8 +213,9 @@ void ST7735_SetRotation(uint8_t rotation)
 
 
         /*
-         * Landscape
+         * Rotation 1
          *
+         * Landscape
          * 160 x 128
          */
         case 1:
@@ -230,13 +232,14 @@ void ST7735_SetRotation(uint8_t rotation)
 
 
         /*
-         * Portrait 180°
+         * Rotation 2
          *
+         * Portrait 180°
          * 128 x 160
          */
         case 2:
 
-            madctl = 0x00;
+            madctl = 0xC0;
 
             ST7735_WIDTH  = 128;
             ST7735_HEIGHT = 160;
@@ -248,8 +251,9 @@ void ST7735_SetRotation(uint8_t rotation)
 
 
         /*
-         * Landscape 180°
+         * Rotation 3
          *
+         * Landscape
          * 160 x 128
          */
         case 3:
@@ -265,17 +269,12 @@ void ST7735_SetRotation(uint8_t rotation)
             break;
     }
 
-
-    /*
-     * MADCTL
-     */
     ST7735_WriteCommand(0x36);
 
     ST7735_WriteData(
         &madctl,
         1);
 }
-
 
 /* ============================================================
  * Address Window
