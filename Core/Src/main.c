@@ -76,12 +76,6 @@ while (1)
 {
 }
 
-while (1)
-{
-}
-        // PA8 bleibt durch LED_Init() dauerhaft LOW
-    }
-}
 
 
 
