@@ -161,7 +161,7 @@ void ST7735_Init(void)
      * Rotation 0:
      * 128 x 160
      */
-    ST7735_SetRotation(0);
+    ST7735_SetRotation(1);
 
     /*
      * 16-bit RGB565
