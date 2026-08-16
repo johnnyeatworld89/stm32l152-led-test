@@ -155,13 +155,7 @@ void ST7735_Init(void)
     ST7735_WriteCommand(0x11);
     HAL_Delay(150);
 
-    /*
-     * Default orientation.
-     *
-     * Rotation 0:
-     * 128 x 160
-     */
-    ST7735_SetRotation(3);
+    
 
     /*
      * 16-bit RGB565
