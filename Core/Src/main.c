@@ -31,16 +31,9 @@ int main(void)
     HAL_Delay(200);
 
     ST7735_Init();
-    LED_Init();
 
-    ST7735_FillScreen(ST7735_BLACK);
+ST7735_FillScreen(ST7735_BLACK);
 
-    while (1)
-    {
-        // Nichts senden
-     ST7735_FillScreen(ST7735_BLACK);
-
-/* Gefüllte Box */
 ST7735_FillRect(
     10,
     10,
@@ -48,7 +41,6 @@ ST7735_FillRect(
     30,
     ST7735_BLUE);
 
-/* Rahmen */
 ST7735_DrawRect(
     10,
     10,
@@ -56,28 +48,33 @@ ST7735_DrawRect(
     30,
     ST7735_WHITE);
 
-/* Zweite Box */
+
 ST7735_FillRect(
-    60,
+    10,
     100,
     50,
     30,
     ST7735_RED);
 
 ST7735_DrawRect(
-    60,
+    10,
     100,
     50,
     30,
     ST7735_WHITE);
 
-/* Pfeil */
+
 ST7735_DrawArrow(
     35,
     40,
     35,
     100,
     ST7735_WHITE);
+
+
+while (1)
+{
+}
 
 while (1)
 {
