@@ -25,6 +25,7 @@ add_executable(firmware
 
     Libraries/ST7735/st7735.c
     Libraries/GFX/gfx.c
+Libraries/GFX/font5x7.c
 Libraries/ost4m18132a/ost4ml8132a.c
 
 
