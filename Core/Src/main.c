@@ -8,6 +8,7 @@
 #include "main.h"
 #include "st7735.h"
 #include "ost4ml8132a.h"
+#include "font5x7.h"
 
 
 /* Global SPI handle used by st7735.c */
@@ -29,46 +30,66 @@ int main(void)
     MX_SPI1_Init();
 
     HAL_Delay(200);
-
-    ST7735_Init();
+ 
+ST7735_Init();
+LED_Init();
 
 ST7735_FillScreen(ST7735_BLACK);
 
+/* Blauer Kasten */
 ST7735_FillRect(
     10,
     10,
-    50,
-    30,
+    108,
+    40,
     ST7735_BLUE);
 
 ST7735_DrawRect(
     10,
     10,
-    50,
-    30,
+    108,
+    40,
     ST7735_WHITE);
 
+/* Text */
+Font5x7_DrawString(
+    20,
+    22,
+    "INPUT",
+    ST7735_WHITE,
+    ST7735_BLUE,
+    2);
 
+/* Roter Kasten */
 ST7735_FillRect(
     10,
-    100,
-    50,
-    30,
+    90,
+    108,
+    40,
     ST7735_RED);
 
 ST7735_DrawRect(
     10,
-    100,
-    50,
-    30,
+    90,
+    108,
+    40,
     ST7735_WHITE);
 
+/* Text */
+Font5x7_DrawString(
+    28,
+    102,
+    "OUTPUT",
+    ST7735_WHITE,
+    ST7735_RED,
+    2);
 
+/* Verbindung */
 ST7735_DrawArrow(
-    35,
-    40,
-    35,
-    100,
+    64,
+    50,
+    64,
+    90,
     ST7735_WHITE);
 
 
