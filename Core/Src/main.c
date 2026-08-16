@@ -32,7 +32,7 @@ int main(void)
     HAL_Delay(200);
  
 ST7735_Init();
- ST7735_SetRotation(0)
+ ST7735_SetRotation(0);
 LED_Init();
 
 ST7735_FillScreen(ST7735_BLACK);
