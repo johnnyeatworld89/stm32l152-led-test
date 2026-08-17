@@ -19,6 +19,66 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void Error_Handler(void);
+static void DrawTestScreen(void)
+{
+    ST7735_FillScreen(ST7735_BLACK);
+
+    /* Blauer Kasten */
+    ST7735_FillRect(
+        10,
+        10,
+        108,
+        40,
+        ST7735_BLUE);
+
+    ST7735_DrawRect(
+        10,
+        10,
+        108,
+        40,
+        ST7735_WHITE);
+
+    Font5x7_DrawString(
+        20,
+        22,
+        "INPUT",
+        ST7735_WHITE,
+        ST7735_BLUE,
+        2);
+
+
+    /* Roter Kasten */
+    ST7735_FillRect(
+        10,
+        90,
+        108,
+        40,
+        ST7735_RED);
+
+    ST7735_DrawRect(
+        10,
+        90,
+        108,
+        40,
+        ST7735_WHITE);
+
+    Font5x7_DrawString(
+        28,
+        102,
+        "OUTPUT",
+        ST7735_WHITE,
+        ST7735_RED,
+        2);
+
+
+    /* Verbindung */
+    ST7735_DrawArrow(
+        64,
+        50,
+        64,
+        90,
+        ST7735_WHITE);
+}
 
 int main(void)
 {
@@ -34,64 +94,8 @@ int main(void)
 ST7735_Init();
  ST7735_SetRotation(0);
 LED_Init();
+DrawTestScreen();
 
-ST7735_FillScreen(ST7735_BLACK);
-
-/* Blauer Kasten */
-ST7735_FillRect(
-    10,
-    10,
-    108,
-    40,
-    ST7735_BLUE);
-
-ST7735_DrawRect(
-    10,
-    10,
-    108,
-    40,
-    ST7735_WHITE);
-
-/* Text */
-Font5x7_DrawString(
-    20,
-    22,
-    "INPUT",
-    ST7735_WHITE,
-    ST7735_BLUE,
-    2);
-
-/* Roter Kasten */
-ST7735_FillRect(
-    10,
-    90,
-    108,
-    40,
-    ST7735_RED);
-
-ST7735_DrawRect(
-    10,
-    90,
-    108,
-    40,
-    ST7735_WHITE);
-
-/* Text */
-Font5x7_DrawString(
-    28,
-    102,
-    "OUTPUT",
-    ST7735_WHITE,
-    ST7735_RED,
-    2);
-
-/* Verbindung */
-ST7735_DrawArrow(
-    64,
-    50,
-    64,
-    90,
-    ST7735_WHITE);
 
 
 while (1)
