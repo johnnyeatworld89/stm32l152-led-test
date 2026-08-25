@@ -116,6 +116,31 @@ int main(void)
          *
          * For now the UI remains static.
          */
+     
+    LED_SetColor(0, 255, 0, 0);
+    LED_SetColor(1, 0, 0, 0);
+    LED_Show();
+
+    HAL_Delay(1000);
+
+    LED_SetColor(0, 0, 255, 0);
+    LED_SetColor(1, 0, 0, 0);
+    LED_Show();
+
+    HAL_Delay(1000);
+
+    LED_SetColor(0, 0, 0, 255);
+    LED_SetColor(1, 0, 0, 0);
+    LED_Show();
+
+    HAL_Delay(1000);
+
+    LED_SetColor(0, 0, 0, 0);
+    LED_SetColor(1, 0, 0, 0);
+    LED_Show();
+
+    HAL_Delay(1000);
+
     }
 }
 
