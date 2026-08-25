@@ -1,18 +1,66 @@
 #include "ost4ml8132a.h"
 
-#define LED_PORT GPIOA
-#define LED_PIN  GPIO_PIN_8
+#define LED_H_PORT GPIOA
+#define LED_H_PIN  GPIO_PIN_8
+
+#define LED_L_PORT GPIOA
+#define LED_L_PIN  GPIO_PIN_9
 
 static RGB_t leds[LED_COUNT];
 
-#define LED_HIGH()  (GPIOA->BSRR = GPIO_PIN_8)
-#define LED_LOW()   (GPIOA->BRR  = GPIO_PIN_8)
-
-static void delay_cycles(volatile uint32_t cycles)
+static void delay_us_soft(volatile uint32_t us)
 {
-    while (cycles--)
+    while (us--)
     {
-        __NOP();
+        for (volatile uint32_t i = 0; i < 32; i++)
+        {
+            __NOP();
+        }
+    }
+}
+
+static void DIN_Middle(void)
+{
+    HAL_GPIO_WritePin(LED_H_PORT, LED_H_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_L_PORT, LED_L_PIN, GPIO_PIN_SET);
+}
+
+static void SendHighBit(void)
+{
+    HAL_GPIO_WritePin(LED_H_PORT, LED_H_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED_L_PORT, LED_L_PIN, GPIO_PIN_SET);
+
+    delay_us_soft(50);
+
+    DIN_Middle();
+
+    delay_us_soft(50);
+}
+
+static void SendLowBit(void)
+{
+    HAL_GPIO_WritePin(LED_H_PORT, LED_H_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_L_PORT, LED_L_PIN, GPIO_PIN_RESET);
+
+    delay_us_soft(50);
+
+    DIN_Middle();
+
+    delay_us_soft(50);
+}
+
+static void LED_SendByte(uint8_t data)
+{
+    for (int8_t i = 7; i >= 0; i--)
+    {
+        if ((data >> i) & 0x01)
+        {
+            SendHighBit();
+        }
+        else
+        {
+            SendLowBit();
+        }
     }
 }
 
@@ -22,42 +70,16 @@ void LED_Init(void)
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
 
-    GPIO_InitStruct.Pin = LED_PIN;
+    GPIO_InitStruct.Pin = LED_H_PIN | LED_L_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 
-    HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    LED_LOW();
+    DIN_Middle();
 
     HAL_Delay(5);
-}
-
-static void LED_SendBit(uint8_t bit)
-{
-    if (bit)
-    {
-        LED_HIGH();
-        delay_cycles(18);
-        LED_LOW();
-        delay_cycles(10);
-    }
-    else
-    {
-        LED_HIGH();
-        delay_cycles(7);
-        LED_LOW();
-        delay_cycles(20);
-    }
-}
-
-static void LED_SendByte(uint8_t data)
-{
-    for (int8_t i = 7; i >= 0; i--)
-    {
-        LED_SendBit((data >> i) & 0x01);
-    }
 }
 
 void LED_SetColor(uint8_t index,
@@ -77,16 +99,12 @@ void LED_SetColor(uint8_t index,
 
 void LED_Show(void)
 {
-    __disable_irq();
-
     for (uint8_t i = 0; i < LED_COUNT; i++)
     {
+        LED_SendByte(leds[i].b);
         LED_SendByte(leds[i].g);
         LED_SendByte(leds[i].r);
-        LED_SendByte(leds[i].b);
     }
-
-    __enable_irq();
 
     HAL_Delay(5);
 }
