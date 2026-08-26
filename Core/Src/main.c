@@ -96,6 +96,7 @@ int main(void)
     LED_Init();
 
 
+
     /* ---------------------------------------------------------------------- */
     /* User interface initialization                                          */
     /* ---------------------------------------------------------------------- */
@@ -116,30 +117,48 @@ int main(void)
          *
          * For now the UI remains static.
          */
+
+         LED_SetColor(0, 240, 0, 0);
+         LED_SetColor(1, 0, 0, 0);
+         LED_Show();
      
-    LED_SetColor(0, 255, 0, 0);
-    LED_SetColor(1, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
-
-    LED_SetColor(0, 0, 255, 0);
-    LED_SetColor(1, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
-
-    LED_SetColor(0, 0, 0, 255);
-    LED_SetColor(1, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
-
-    LED_SetColor(0, 0, 0, 0);
-    LED_SetColor(1, 0, 0, 0);
-    LED_Show();
-
-    HAL_Delay(1000);
+         HAL_Delay(800);
+     
+         LED_SetColor(0, 0, 240, 0);
+         LED_SetColor(1, 0, 0, 0);
+         LED_Show();
+     
+         HAL_Delay(800);
+     
+         LED_SetColor(0, 0, 0, 240);
+         LED_SetColor(1, 0, 0, 0);
+         LED_Show();
+     
+         HAL_Delay(800);
+     
+         LED_SetColor(0, 0, 0, 0);
+         LED_SetColor(1, 240, 0, 0);
+         LED_Show();
+     
+         HAL_Delay(800);
+     
+         LED_SetColor(0, 0, 0, 0);
+         LED_SetColor(1, 0, 240, 0);
+         LED_Show();
+     
+         HAL_Delay(800);
+     
+         LED_SetColor(0, 0, 0, 0);
+         LED_SetColor(1, 0, 0, 240);
+         LED_Show();
+     
+         HAL_Delay(800);
+     
+         LED_SetColor(0, 0, 0, 0);
+         LED_SetColor(1, 0, 0, 0);
+         LED_Show();
+     
+         HAL_Delay(800);
 
     }
 }
