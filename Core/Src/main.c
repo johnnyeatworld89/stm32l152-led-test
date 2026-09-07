@@ -86,7 +86,7 @@ int main(void)
      *
      * without changing the UI code.
      */
-    ST7735_SetRotation(0);
+    ST7735_SetRotation(1);
 
 
     /* ---------------------------------------------------------------------- */
