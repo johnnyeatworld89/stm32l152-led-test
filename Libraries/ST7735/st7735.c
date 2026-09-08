@@ -32,6 +32,13 @@
 static uint16_t st7735_width  = ST7735_WIDTH;
 static uint16_t st7735_height = ST7735_HEIGHT;
 
+/*
+ * Active display-memory offsets.
+ *
+ * These values change with the display rotation.
+ */
+static uint16_t st7735_xstart = ST7735_COLSTART;
+static uint16_t st7735_ystart = ST7735_ROWSTART;
 
 /* -------------------------------------------------------------------------- */
 /* Low-level control                                                          */
@@ -183,6 +190,9 @@ void ST7735_Init(void)
     /* Default orientation */
     st7735_width  = ST7735_WIDTH;
     st7735_height = ST7735_HEIGHT;
+
+    st7735_xstart = ST7735_COLSTART;
+    st7735_ystart = ST7735_ROWSTART;
 }
 
 
@@ -200,33 +210,72 @@ void ST7735_SetRotation(uint8_t rotation)
     switch (rotation)
     {
         case 0:
+            /*
+             * Portrait: 128 x 160
+             */
             madctl = 0x00;
+
             st7735_width  = 128;
             st7735_height = 160;
+
+            st7735_xstart = ST7735_COLSTART;
+            st7735_ystart = ST7735_ROWSTART;
             break;
+
 
         case 1:
+            /*
+             * Landscape: 160 x 128
+             *
+             * X and Y offsets must be exchanged
+             * because the controller axes are exchanged.
+             */
             madctl = 0x60;
+
             st7735_width  = 160;
             st7735_height = 128;
+
+            st7735_xstart = ST7735_ROWSTART;
+            st7735_ystart = ST7735_COLSTART;
             break;
+
 
         case 2:
+            /*
+             * Inverted portrait: 128 x 160
+             */
             madctl = 0xC0;
+
             st7735_width  = 128;
             st7735_height = 160;
+
+            st7735_xstart = ST7735_COLSTART;
+            st7735_ystart = ST7735_ROWSTART;
             break;
 
+
         case 3:
+            /*
+             * Inverted landscape: 160 x 128
+             */
             madctl = 0xA0;
+
             st7735_width  = 160;
             st7735_height = 128;
+
+            st7735_xstart = ST7735_ROWSTART;
+            st7735_ystart = ST7735_COLSTART;
             break;
+
 
         default:
             madctl = 0x00;
+
             st7735_width  = 128;
             st7735_height = 160;
+
+            st7735_xstart = ST7735_COLSTART;
+            st7735_ystart = ST7735_ROWSTART;
             break;
     }
 
@@ -255,11 +304,11 @@ static void ST7735_SetAddressWindow(
 
 
     /* Apply panel offsets */
-    x0 += ST7735_XSTART;
-    x1 += ST7735_XSTART;
+    x0 += st7735_xstart;
+    x1 += st7735_xstart;
 
-    y0 += ST7735_YSTART;
-    y1 += ST7735_YSTART;
+    y0 += st7735_ystart;
+    y1 += st7735_ystart;
 
 
     /* Column address */
