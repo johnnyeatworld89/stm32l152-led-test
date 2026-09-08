@@ -16,8 +16,13 @@
 /* Display offsets                                                            */
 /* -------------------------------------------------------------------------- */
 
-#define ST7735_XSTART  2
-#define ST7735_YSTART  1
+/*
+ * Native panel offsets for the 128 x 160 ST7735S panel.
+ *
+ * The active X/Y offsets are selected by ST7735_SetRotation().
+ */
+#define ST7735_COLSTART  2
+#define ST7735_ROWSTART  1
 
 
 /* -------------------------------------------------------------------------- */
