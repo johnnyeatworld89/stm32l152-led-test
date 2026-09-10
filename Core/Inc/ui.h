@@ -154,6 +154,52 @@ typedef struct
 
 } UI_Item;
 
+/* -------------------------------------------------------------------------- */
+/* UI connection                                                              */
+/* -------------------------------------------------------------------------- */
+
+typedef struct
+{
+    /*
+     * ID of the source item.
+     */
+    uint16_t sourceId;
+
+    /*
+     * ID of the target item.
+     */
+    uint16_t targetId;
+
+} UI_Connection;
+
+
+/* -------------------------------------------------------------------------- */
+/* Calculated screen geometry                                                 */
+/* -------------------------------------------------------------------------- */
+
+typedef struct
+{
+    /*
+     * Item ID associated with this geometry.
+     */
+    uint16_t itemId;
+
+    /*
+     * Screen position and dimensions.
+     */
+    int16_t x;
+    int16_t y;
+
+    uint16_t width;
+    uint16_t height;
+
+    /*
+     * True when the item is inside the current viewport.
+     */
+    uint8_t visible;
+
+} UI_ItemGeometry;
+
 
 /* -------------------------------------------------------------------------- */
 /* Display-dependent layout configuration                                     */
