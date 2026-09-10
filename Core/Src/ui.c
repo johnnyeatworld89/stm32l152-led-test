@@ -82,7 +82,50 @@ static UI_Item uiItems[] =
     }
 };
 
+
 #define UI_ITEM_COUNT (sizeof(uiItems) / sizeof(uiItems[0]))
+
+/* -------------------------------------------------------------------------- */
+/* Temporary test connections                                                 */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * The connections are still manually defined.
+ *
+ * The routing algorithm will generate this list later.
+ */
+static UI_Connection uiConnections[] =
+{
+    {
+        .sourceId = 1,
+        .targetId = 2
+    },
+
+    {
+        .sourceId = 2,
+        .targetId = 3
+    },
+
+    {
+        .sourceId = 3,
+        .targetId = 4
+    },
+
+    {
+        .sourceId = 4,
+        .targetId = 5
+    }
+};
+
+
+#define UI_CONNECTION_COUNT \
+    (sizeof(uiConnections) / sizeof(uiConnections[0]))
+
+
+/*
+ * Calculated screen geometry for every test item.
+ */
+static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 
 static void UI_DrawCircle(int16_t centerX, int16_t centerY,
                           int16_t radius, uint16_t color)
@@ -366,24 +409,295 @@ void UI_Init(void)
 {
 }
 
-void UI_Draw(void)
-{
-    ST7735_FillScreen(UI_COLOR_BACKGROUND);
+/* -------------------------------------------------------------------------- */
+/* Find item index by ID                                                      */
+/* -------------------------------------------------------------------------- */
 
-    uint16_t y = (UI_DISPLAY_HEIGHT - UI_ITEM_HEIGHT) / 2;
+static int16_t UI_FindItemIndexById(uint16_t itemId)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].id == itemId)
+        {
+            return (int16_t)i;
+        }
+    }
+
+    return -1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Calculate item geometry                                                    */
+/* -------------------------------------------------------------------------- */
+
+static void UI_CalculateGeometry(void)
+{
     uint16_t x = UI_MARGIN_LEFT;
 
-    for (uint16_t i = 0; i < UI_ITEM_COUNT; i++)
-    {
-        uint16_t itemWidth = UI_GetItemWidth(&uiItems[i]);
+    int16_t centerY =
+        UI_DISPLAY_HEIGHT / 2;
 
-        if ((x + itemWidth) >
-            (UI_DISPLAY_WIDTH - UI_MARGIN_RIGHT))
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        uint16_t itemWidth =
+            UI_GetItemWidth(&uiItems[i]);
+
+        int16_t itemY =
+            centerY -
+            (UI_ITEM_HEIGHT / 2);
+
+        uiGeometry[i].itemId =
+            uiItems[i].id;
+
+        uiGeometry[i].x =
+            (int16_t)x;
+
+        uiGeometry[i].y =
+            itemY;
+
+        uiGeometry[i].width =
+            itemWidth;
+
+        uiGeometry[i].height =
+            UI_ITEM_HEIGHT;
+
+        uiGeometry[i].visible =
+            0;
+
+
+        if ((x + itemWidth) <=
+            (UI_DISPLAY_WIDTH -
+             UI_MARGIN_RIGHT))
         {
-            break;
+            uiGeometry[i].visible = 1;
         }
 
-        UI_DrawItem(&uiItems[i], x, y);
-        x += itemWidth + UI_COLUMN_SPACING;
+
+        x +=
+            itemWidth +
+            UI_COLUMN_SPACING;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Connection points                                                          */
+/* -------------------------------------------------------------------------- */
+
+static int16_t UI_GetInputX(
+    const UI_ItemGeometry *geometry)
+{
+    return geometry->x;
+}
+
+
+static int16_t UI_GetOutputX(
+    const UI_ItemGeometry *geometry)
+{
+    return
+        geometry->x +
+        geometry->width -
+        1;
+}
+
+
+static int16_t UI_GetConnectionY(
+    const UI_ItemGeometry *geometry)
+{
+    return
+        geometry->y +
+        (geometry->height / 2);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Draw horizontal connection                                                 */
+/* -------------------------------------------------------------------------- */
+
+static void UI_DrawHorizontalConnection(
+    int16_t x0,
+    int16_t y,
+    int16_t x1,
+    uint16_t color)
+{
+    /*
+     * Not enough room for a visible connection.
+     */
+    if (x1 <= x0)
+    {
+        return;
+    }
+
+
+    /*
+     * Leave a small gap before the target item
+     * for the arrowhead.
+     */
+    int16_t arrowTipX =
+        x1 - 1;
+
+    int16_t arrowBaseX =
+        arrowTipX - 3;
+
+
+    if (arrowBaseX <= x0)
+    {
+        ST7735_DrawLine(
+            x0,
+            y,
+            arrowTipX,
+            y,
+            color);
+
+        return;
+    }
+
+
+    /*
+     * Main line.
+     */
+    ST7735_DrawLine(
+        x0,
+        y,
+        arrowBaseX,
+        y,
+        color);
+
+
+    /*
+     * Arrowhead at the target input.
+     */
+    ST7735_DrawLine(
+        arrowBaseX,
+        y - 2,
+        arrowTipX,
+        y,
+        color);
+
+    ST7735_DrawLine(
+        arrowBaseX,
+        y + 2,
+        arrowTipX,
+        y,
+        color);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Draw all connections                                                       */
+/* -------------------------------------------------------------------------- */
+
+static void UI_DrawConnections(void)
+{
+    for (uint16_t i = 0;
+         i < UI_CONNECTION_COUNT;
+         i++)
+    {
+        int16_t sourceIndex =
+            UI_FindItemIndexById(
+                uiConnections[i].sourceId);
+
+        int16_t targetIndex =
+            UI_FindItemIndexById(
+                uiConnections[i].targetId);
+
+
+        if (sourceIndex < 0 ||
+            targetIndex < 0)
+        {
+            continue;
+        }
+
+
+        const UI_ItemGeometry *source =
+            &uiGeometry[sourceIndex];
+
+        const UI_ItemGeometry *target =
+            &uiGeometry[targetIndex];
+
+
+        /*
+         * Connections are currently only drawn when
+         * both items are inside the viewport.
+         */
+        if (!source->visible ||
+            !target->visible)
+        {
+            continue;
+        }
+
+
+        int16_t sourceX =
+            UI_GetOutputX(source);
+
+        int16_t targetX =
+            UI_GetInputX(target);
+
+        int16_t sourceY =
+            UI_GetConnectionY(source);
+
+        int16_t targetY =
+            UI_GetConnectionY(target);
+
+
+        /*
+         * Current test structure uses one lane only.
+         */
+        if (sourceY == targetY)
+        {
+            UI_DrawHorizontalConnection(
+                sourceX + 1,
+                sourceY,
+                targetX,
+                ST7735_WHITE);
+        }
+    }
+}
+
+void UI_Draw(void)
+{
+    /*
+     * Clear complete display.
+     */
+    ST7735_FillScreen(
+        UI_COLOR_BACKGROUND);
+
+
+    /*
+     * Calculate every item position before drawing.
+     *
+     * This is necessary because connections must know
+     * the positions of source and target items.
+     */
+    UI_CalculateGeometry();
+
+
+    /*
+     * Draw connections first.
+     *
+     * Items are drawn afterward so that item borders
+     * cover the endpoints of the connection lines.
+     */
+    UI_DrawConnections();
+
+
+    /*
+     * Draw items above the connection layer.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!uiGeometry[i].visible)
+        {
+            continue;
+        }
+
+
+        UI_DrawItem(
+            &uiItems[i],
+            (uint16_t)uiGeometry[i].x,
+            (uint16_t)uiGeometry[i].y);
     }
 }
