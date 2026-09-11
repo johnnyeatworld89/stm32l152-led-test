@@ -1098,9 +1098,9 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
      */
     if (sourceY == centerY)
    {
-        if (UI_IsCircularItem(ta*getItem))
+        if (UI_IsCircularItem(targetItem))
         {
-            po*nt.x =
+            point.x =
                 centerX -
                UI_GetCircularRadius*targetItem);
         }
