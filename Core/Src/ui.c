@@ -57,7 +57,7 @@
 #define UI_FOOTER_HEIGHT             \
     (UI_DISPLAY_HEIGHT - UI_FOOTER_TOP)
 
-#define UI_LOOP_CORNER_RADIUS        2
+#define UI_LOOP_CORNER_RADIUS        3
 #define UI_IO_CIRCLE_RADIUS          7
 #define UI_MANUAL_NODE_RADIUS        6
 #define UI_AUTO_NODE_RADIUS          3
