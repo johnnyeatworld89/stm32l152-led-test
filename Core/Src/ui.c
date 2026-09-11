@@ -1238,6 +1238,9 @@ static void UI_DrawConnections(void)
             targetX - 1,
             targetY,
             ST7735_WHITE
+            );
+         }
+    }
 
 /* -------------------------------------------------------------------------- */
 /* Footer                                                                     */
