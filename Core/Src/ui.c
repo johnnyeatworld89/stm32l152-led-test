@@ -3,31 +3,67 @@
 #include "st7735.h"
 #include "font5x7.h"
 
-#define UI_COLOR_SELECTED_BORDER    0x051F
-#define UI_COLOR_GRABBED_BORDER     0xF81F
-#define UI_COLOR_NORMAL_BORDER      0xFFFF
-#define UI_COLOR_LOOP_OFF           0x0000
-#define UI_COLOR_LOOP_CONFIRMED     0x07E0
-#define UI_COLOR_LOOP_UNCONFIRMED   0xFFE0
-#define UI_COLOR_BACKGROUND         0x0000
-#define UI_COLOR_TEXT_LIGHT         0xFFFF
-#define UI_COLOR_TEXT_DARK          0x0000
-#define UI_COLOR_NODE               0xFFFF
-#define UI_COLOR_AUTO_NODE          0xFFFF
+/* -------------------------------------------------------------------------- */
+/* Colors                                                                     */
+/* -------------------------------------------------------------------------- */
 
-#define UI_DISPLAY_WIDTH            160
-#define UI_DISPLAY_HEIGHT           128
-#define UI_MARGIN_LEFT              4
-#define UI_MARGIN_RIGHT             4
-#define UI_NORMAL_ITEM_WIDTH        22
-#define UI_SELECTED_ITEM_WIDTH      44
-#define UI_IO_ITEM_WIDTH            18
+#define UI_COLOR_BACKGROUND          0x0000
+#define UI_COLOR_TEXT_LIGHT          0xFFFF
+#define UI_COLOR_TEXT_DARK           0x0000
 
-#define UI_ITEM_HEIGHT              24
-#define UI_COLUMN_SPACING           7
-#define UI_IO_CIRCLE_RADIUS         4
-#define UI_MANUAL_NODE_RADIUS       6
-#define UI_AUTO_NODE_RADIUS         3
+#define UI_COLOR_BORDER_NORMAL       0xFFFF
+#define UI_COLOR_BORDER_SELECTED     0x051F
+#define UI_COLOR_BORDER_GRABBED      0xF81F
+
+#define UI_COLOR_LOOP_OFF            0x0000
+#define UI_COLOR_LOOP_CONFIRMED      0x07E0
+#define UI_COLOR_LOOP_UNCONFIRMED    0xFFE0
+
+#define UI_COLOR_CONNECTION          0xFFFF
+#define UI_COLOR_AUTO_NODE           0xFFFF
+
+/* -------------------------------------------------------------------------- */
+/* Display and grid                                                           */
+/* -------------------------------------------------------------------------- */
+
+#define UI_DISPLAY_WIDTH             160
+#define UI_DISPLAY_HEIGHT            128
+
+#define UI_VISIBLE_ELEMENT_COLUMNS   4
+#define UI_VISIBLE_LANES             3
+
+#define UI_ELEMENT_WIDTH             24
+#define UI_ELEMENT_HEIGHT            24
+
+#define UI_CONNECTION_WIDTH          18
+#define UI_VERTICAL_CONNECTION_HEIGHT 16
+
+#define UI_GRID_CONTENT_WIDTH        \
+    ((UI_VISIBLE_ELEMENT_COLUMNS * UI_ELEMENT_WIDTH) + \
+     ((UI_VISIBLE_ELEMENT_COLUMNS - 1) * UI_CONNECTION_WIDTH))
+
+#define UI_GRID_CONTENT_HEIGHT       \
+    ((UI_VISIBLE_LANES * UI_ELEMENT_HEIGHT) + \
+     ((UI_VISIBLE_LANES - 1) * UI_VERTICAL_CONNECTION_HEIGHT))
+
+#define UI_GRID_LEFT                 \
+    ((UI_DISPLAY_WIDTH - UI_GRID_CONTENT_WIDTH) / 2)
+
+#define UI_GRID_TOP                  2
+
+#define UI_FOOTER_TOP                \
+    (UI_GRID_TOP + UI_GRID_CONTENT_HEIGHT + 2)
+
+#define UI_FOOTER_HEIGHT             \
+    (UI_DISPLAY_HEIGHT - UI_FOOTER_TOP)
+
+#define UI_IO_CIRCLE_RADIUS          4
+#define UI_MANUAL_NODE_RADIUS        6
+#define UI_AUTO_NODE_RADIUS          3
+
+/* -------------------------------------------------------------------------- */
+/* Temporary test data                                                        */
+/* -------------------------------------------------------------------------- */
 
 static UI_Item uiItems[] =
 {
@@ -63,18 +99,8 @@ static UI_Item uiItems[] =
     },
     {
         .id = 4,
-        .type = UI_ITEM_LOOP,
-        .order = 3,
-        .lane = 0,
-        .loopStatus = UI_LOOP_STATUS_ACTIVE_UNCONFIRMED,
-        .focus = UI_FOCUS_NONE,
-        .shortName = "L03",
-        .longName = "Loop 03"
-    },
-    {
-        .id = 5,
         .type = UI_ITEM_OUTPUT,
-        .order = 4,
+        .order = 3,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -83,53 +109,30 @@ static UI_Item uiItems[] =
     }
 };
 
+#define UI_ITEM_COUNT \
+    (sizeof(uiItems) / sizeof(uiItems[0]))
 
-#define UI_ITEM_COUNT (sizeof(uiItems) / sizeof(uiItems[0]))
-
-/* -------------------------------------------------------------------------- */
-/* Temporary test connections                                                 */
-/* -------------------------------------------------------------------------- */
-
-/*
- * The connections are still manually defined.
- *
- * The routing algorithm will generate this list later.
- */
 static UI_Connection uiConnections[] =
 {
-    {
-        .sourceId = 1,
-        .targetId = 2
-    },
-
-    {
-        .sourceId = 2,
-        .targetId = 3
-    },
-
-    {
-        .sourceId = 3,
-        .targetId = 4
-    },
-
-    {
-        .sourceId = 4,
-        .targetId = 5
-    }
+    { .sourceId = 1, .targetId = 2 },
+    { .sourceId = 2, .targetId = 3 },
+    { .sourceId = 3, .targetId = 4 }
 };
-
 
 #define UI_CONNECTION_COUNT \
     (sizeof(uiConnections) / sizeof(uiConnections[0]))
 
-
-/*
- * Calculated screen geometry for every test item.
- */
 static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 
-static void UI_DrawCircle(int16_t centerX, int16_t centerY,
-                          int16_t radius, uint16_t color)
+/* -------------------------------------------------------------------------- */
+/* Primitive shapes                                                           */
+/* -------------------------------------------------------------------------- */
+
+static void UI_DrawCircle(
+    int16_t centerX,
+    int16_t centerY,
+    int16_t radius,
+    uint16_t color)
 {
     int16_t x = radius;
     int16_t y = 0;
@@ -147,6 +150,7 @@ static void UI_DrawCircle(int16_t centerX, int16_t centerY,
         ST7735_DrawPixel(centerX + x, centerY - y, color);
 
         y++;
+
         if (error < 0)
         {
             error += (2 * y) + 1;
@@ -159,8 +163,11 @@ static void UI_DrawCircle(int16_t centerX, int16_t centerY,
     }
 }
 
-static void UI_FillCircle(int16_t centerX, int16_t centerY,
-                          int16_t radius, uint16_t color)
+static void UI_FillCircle(
+    int16_t centerX,
+    int16_t centerY,
+    int16_t radius,
+    uint16_t color)
 {
     for (int16_t y = -radius; y <= radius; y++)
     {
@@ -174,9 +181,13 @@ static void UI_FillCircle(int16_t centerX, int16_t centerY,
     }
 }
 
-static uint16_t UI_GetLoopFillColor(const UI_Item *item)
+/* -------------------------------------------------------------------------- */
+/* Item helpers                                                               */
+/* -------------------------------------------------------------------------- */
+
+static uint16_t UI_GetFillColor(const UI_Item *item)
 {
-    if (item == NULL)
+    if (item == NULL || item->type != UI_ITEM_LOOP)
     {
         return UI_COLOR_BACKGROUND;
     }
@@ -185,8 +196,10 @@ static uint16_t UI_GetLoopFillColor(const UI_Item *item)
     {
         case UI_LOOP_STATUS_ACTIVE_CONFIRMED:
             return UI_COLOR_LOOP_CONFIRMED;
+
         case UI_LOOP_STATUS_ACTIVE_UNCONFIRMED:
             return UI_COLOR_LOOP_UNCONFIRMED;
+
         case UI_LOOP_STATUS_OFF:
         default:
             return UI_COLOR_LOOP_OFF;
@@ -197,29 +210,27 @@ static uint16_t UI_GetBorderColor(const UI_Item *item)
 {
     if (item == NULL)
     {
-        return UI_COLOR_NORMAL_BORDER;
+        return UI_COLOR_BORDER_NORMAL;
     }
 
     switch (item->focus)
     {
         case UI_FOCUS_SELECTED:
-            return UI_COLOR_SELECTED_BORDER;
+            return UI_COLOR_BORDER_SELECTED;
+
         case UI_FOCUS_GRABBED:
-            return UI_COLOR_GRABBED_BORDER;
+            return UI_COLOR_BORDER_GRABBED;
+
         case UI_FOCUS_NONE:
         default:
-            return UI_COLOR_NORMAL_BORDER;
+            return UI_COLOR_BORDER_NORMAL;
     }
 }
 
 static uint16_t UI_GetTextColor(const UI_Item *item)
 {
-    if (item == NULL)
-    {
-        return UI_COLOR_TEXT_LIGHT;
-    }
-
-    if (item->type == UI_ITEM_LOOP &&
+    if (item != NULL &&
+        item->type == UI_ITEM_LOOP &&
         item->loopStatus == UI_LOOP_STATUS_ACTIVE_UNCONFIRMED)
     {
         return UI_COLOR_TEXT_DARK;
@@ -228,70 +239,27 @@ static uint16_t UI_GetTextColor(const UI_Item *item)
     return UI_COLOR_TEXT_LIGHT;
 }
 
-static const char *UI_GetDisplayedName(const UI_Item *item)
-{
-    if (item == NULL)
-    {
-        return "";
-    }
-
-    if (item->focus == UI_FOCUS_SELECTED ||
-        item->focus == UI_FOCUS_GRABBED)
-    {
-        return item->longName;
-    }
-
-    return item->shortName;
-}
-
-static uint16_t UI_GetItemWidth(const UI_Item *item)
-{
-    if (item == NULL)
-    {
-        return UI_NORMAL_ITEM_WIDTH;
-    }
-
-    if (item->type == UI_ITEM_AUTO_NODE)
-    {
-        return (UI_AUTO_NODE_RADIUS * 2) + 2;
-    }
-
-    if (item->type == UI_ITEM_MANUAL_NODE)
-    {
-        return (UI_MANUAL_NODE_RADIUS * 2) + 2;
-    }
-
-    if (item->type == UI_ITEM_INPUT || item->type == UI_ITEM_OUTPUT)
-    {
-        if (item->focus == UI_FOCUS_SELECTED ||
-            item->focus == UI_FOCUS_GRABBED)
-        {
-            return UI_SELECTED_ITEM_WIDTH;
-        }
-        return UI_IO_ITEM_WIDTH;
-    }
-
-    if (item->focus == UI_FOCUS_SELECTED ||
-        item->focus == UI_FOCUS_GRABBED)
-    {
-        return UI_SELECTED_ITEM_WIDTH;
-    }
-
-    return UI_NORMAL_ITEM_WIDTH;
-}
-
-static void UI_DrawCenteredText(uint16_t x, uint16_t y,
-                                uint16_t width, uint16_t height,
-                                const char *text, uint16_t foreground,
-                                uint16_t background, uint8_t scale)
+static void UI_DrawCenteredText(
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height,
+    const char *text,
+    uint16_t foreground,
+    uint16_t background,
+    uint8_t scale)
 {
     if (text == NULL)
     {
         return;
     }
 
-    uint16_t textWidth = Font5x7_GetStringWidth(text, scale);
-    uint16_t textHeight = Font5x7_GetHeight(scale);
+    uint16_t textWidth =
+        Font5x7_GetStringWidth(text, scale);
+
+    uint16_t textHeight =
+        Font5x7_GetHeight(scale);
+
     uint16_t textX = x;
     uint16_t textY = y;
 
@@ -299,171 +267,87 @@ static void UI_DrawCenteredText(uint16_t x, uint16_t y,
     {
         textX = x + ((width - textWidth) / 2);
     }
+
     if (textHeight < height)
     {
         textY = y + ((height - textHeight) / 2);
     }
 
-    Font5x7_DrawString(textX, textY, text,
-                       foreground, background, scale);
-}
-
-static void UI_DrawLoop(const UI_Item *item, uint16_t x, uint16_t y)
-{
-    uint16_t width = UI_GetItemWidth(item);
-    uint16_t fillColor = UI_GetLoopFillColor(item);
-    uint16_t borderColor = UI_GetBorderColor(item);
-    uint16_t textColor = UI_GetTextColor(item);
-    const char *name = UI_GetDisplayedName(item);
-
-    ST7735_FillRect(x, y, width, UI_ITEM_HEIGHT, fillColor);
-    ST7735_DrawRect(x, y, width, UI_ITEM_HEIGHT, borderColor);
-
-    if ((item->focus == UI_FOCUS_SELECTED ||
-         item->focus == UI_FOCUS_GRABBED) &&
-        width > 4 && UI_ITEM_HEIGHT > 4)
-    {
-        ST7735_DrawRect(x + 1, y + 1,
-                        width - 2, UI_ITEM_HEIGHT - 2,
-                        borderColor);
-    }
-
-    UI_DrawCenteredText(x, y, width, UI_ITEM_HEIGHT,
-                        name, textColor, fillColor, 1);
-}
-
-static void UI_DrawIO(
-    const UI_Item *item,
-    uint16_t x,
-    uint16_t y)
-{
-    uint16_t width =
-        UI_GetItemWidth(item);
-
-    uint16_t borderColor =
-        UI_GetBorderColor(item);
-
-    const char *name =
-        UI_GetDisplayedName(item);
-
-
-    /*
-     * Der Kreis liegt exakt auf der horizontalen
-     * Verbindungsebene der Loop-Kästen.
-     */
-    int16_t centerX =
-        x + (width / 2);
-
-    int16_t centerY =
-        y + (UI_ITEM_HEIGHT / 2);
-
-
-    UI_DrawCircle(
-        centerX,
-        centerY,
-        UI_IO_CIRCLE_RADIUS,
-        borderColor);
-
-
-    /*
-     * Kleiner Mittelpunkt als sichtbarer Anschluss.
-     */
-    ST7735_DrawPixel(
-        centerX,
-        centerY,
-        borderColor);
-
-
-    /*
-     * Kurz- oder Langname unterhalb des Kreises.
-     */
-    uint16_t textY =
-        (uint16_t)(
-            centerY +
-            UI_IO_CIRCLE_RADIUS +
-            3
-        );
-
-
-    UI_DrawCenteredText(
-        x,
+    Font5x7_DrawString(
+        textX,
         textY,
-        width,
-        7,
-        name,
-        UI_COLOR_TEXT_LIGHT,
-        UI_COLOR_BACKGROUND,
-        1);
-}
-
-static void UI_DrawManualNode(const UI_Item *item,
-                              uint16_t x, uint16_t y)
-{
-    uint16_t width = UI_GetItemWidth(item);
-    uint16_t color = UI_GetBorderColor(item);
-    int16_t centerX = x + (width / 2);
-    int16_t centerY = y + (UI_ITEM_HEIGHT / 2);
-
-    ST7735_DrawLine(centerX, centerY - UI_MANUAL_NODE_RADIUS,
-                    centerX + UI_MANUAL_NODE_RADIUS, centerY, color);
-    ST7735_DrawLine(centerX + UI_MANUAL_NODE_RADIUS, centerY,
-                    centerX, centerY + UI_MANUAL_NODE_RADIUS, color);
-    ST7735_DrawLine(centerX, centerY + UI_MANUAL_NODE_RADIUS,
-                    centerX - UI_MANUAL_NODE_RADIUS, centerY, color);
-    ST7735_DrawLine(centerX - UI_MANUAL_NODE_RADIUS, centerY,
-                    centerX, centerY - UI_MANUAL_NODE_RADIUS, color);
-}
-
-static void UI_DrawAutoNode(uint16_t x, uint16_t y)
-{
-    uint16_t width = (UI_AUTO_NODE_RADIUS * 2) + 2;
-    int16_t centerX = x + (width / 2);
-    int16_t centerY = y + (UI_ITEM_HEIGHT / 2);
-
-    UI_FillCircle(centerX, centerY,
-                  UI_AUTO_NODE_RADIUS, UI_COLOR_AUTO_NODE);
-}
-
-static void UI_DrawItem(const UI_Item *item, uint16_t x, uint16_t y)
-{
-    if (item == NULL)
-    {
-        return;
-    }
-
-    switch (item->type)
-    {
-        case UI_ITEM_LOOP:
-            UI_DrawLoop(item, x, y);
-            break;
-        case UI_ITEM_INPUT:
-        case UI_ITEM_OUTPUT:
-            UI_DrawIO(item, x, y);
-            break;
-        case UI_ITEM_MANUAL_NODE:
-            UI_DrawManualNode(item, x, y);
-            break;
-        case UI_ITEM_AUTO_NODE:
-            UI_DrawAutoNode(x, y);
-            break;
-        default:
-            break;
-    }
-}
-
-void UI_Init(void)
-{
+        text,
+        foreground,
+        background,
+        scale);
 }
 
 /* -------------------------------------------------------------------------- */
-/* Find item index by ID                                                      */
+/* Grid conversion                                                            */
 /* -------------------------------------------------------------------------- */
+
+static int16_t UI_GetElementX(int16_t visibleOrder)
+{
+    return
+        UI_GRID_LEFT +
+        (visibleOrder *
+         (UI_ELEMENT_WIDTH + UI_CONNECTION_WIDTH));
+}
+
+static int16_t UI_GetLaneY(int16_t lane)
+{
+    /*
+     * Visible lanes:
+     * +1 = upper lane
+     *  0 = center lane
+     * -1 = lower lane
+     */
+    int16_t laneIndex = 1 - lane;
+
+    return
+        UI_GRID_TOP +
+        (laneIndex *
+         (UI_ELEMENT_HEIGHT + UI_VERTICAL_CONNECTION_HEIGHT));
+}
+
+static uint8_t UI_IsLaneVisible(int16_t lane)
+{
+    return (lane >= -1 && lane <= 1) ? 1 : 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Geometry                                                                   */
+/* -------------------------------------------------------------------------- */
+
+static void UI_CalculateGeometry(void)
+{
+    for (uint16_t i = 0; i < UI_ITEM_COUNT; i++)
+    {
+        uiGeometry[i].itemId = uiItems[i].id;
+        uiGeometry[i].width = UI_ELEMENT_WIDTH;
+        uiGeometry[i].height = UI_ELEMENT_HEIGHT;
+        uiGeometry[i].visible = 0;
+
+        if (uiItems[i].order < 0 ||
+            uiItems[i].order >= UI_VISIBLE_ELEMENT_COLUMNS ||
+            !UI_IsLaneVisible(uiItems[i].lane))
+        {
+            continue;
+        }
+
+        uiGeometry[i].x =
+            UI_GetElementX(uiItems[i].order);
+
+        uiGeometry[i].y =
+            UI_GetLaneY(uiItems[i].lane);
+
+        uiGeometry[i].visible = 1;
+    }
+}
 
 static int16_t UI_FindItemIndexById(uint16_t itemId)
 {
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
+    for (uint16_t i = 0; i < UI_ITEM_COUNT; i++)
     {
         if (uiItems[i].id == itemId)
         {
@@ -475,63 +359,180 @@ static int16_t UI_FindItemIndexById(uint16_t itemId)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Calculate item geometry                                                    */
+/* Item drawing                                                               */
 /* -------------------------------------------------------------------------- */
 
-static void UI_CalculateGeometry(void)
+static void UI_DrawLoop(
+    const UI_Item *item,
+    int16_t x,
+    int16_t y)
 {
-    uint16_t x = UI_MARGIN_LEFT;
+    uint16_t fillColor = UI_GetFillColor(item);
+    uint16_t borderColor = UI_GetBorderColor(item);
+    uint16_t textColor = UI_GetTextColor(item);
+
+    ST7735_FillRect(
+        (uint16_t)x,
+        (uint16_t)y,
+        UI_ELEMENT_WIDTH,
+        UI_ELEMENT_HEIGHT,
+        fillColor);
+
+    ST7735_DrawRect(
+        (uint16_t)x,
+        (uint16_t)y,
+        UI_ELEMENT_WIDTH,
+        UI_ELEMENT_HEIGHT,
+        borderColor);
+
+    if (item->focus == UI_FOCUS_SELECTED ||
+        item->focus == UI_FOCUS_GRABBED)
+    {
+        ST7735_DrawRect(
+            (uint16_t)(x + 1),
+            (uint16_t)(y + 1),
+            UI_ELEMENT_WIDTH - 2,
+            UI_ELEMENT_HEIGHT - 2,
+            borderColor);
+    }
+
+    UI_DrawCenteredText(
+        (uint16_t)x,
+        (uint16_t)y,
+        UI_ELEMENT_WIDTH,
+        UI_ELEMENT_HEIGHT,
+        item->shortName,
+        textColor,
+        fillColor,
+        1);
+}
+
+static void UI_DrawIO(
+    const UI_Item *item,
+    int16_t x,
+    int16_t y)
+{
+    uint16_t borderColor = UI_GetBorderColor(item);
+
+    int16_t centerX =
+        x + (UI_ELEMENT_WIDTH / 2);
 
     int16_t centerY =
-        UI_DISPLAY_HEIGHT / 2;
+        y + (UI_ELEMENT_HEIGHT / 2);
 
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
+    UI_DrawCircle(
+        centerX,
+        centerY,
+        UI_IO_CIRCLE_RADIUS,
+        borderColor);
+
+    ST7735_DrawPixel(
+        centerX,
+        centerY,
+        borderColor);
+
+    UI_DrawCenteredText(
+        (uint16_t)x,
+        (uint16_t)(centerY + UI_IO_CIRCLE_RADIUS + 3),
+        UI_ELEMENT_WIDTH,
+        7,
+        item->shortName,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1);
+}
+
+static void UI_DrawManualNode(
+    const UI_Item *item,
+    int16_t x,
+    int16_t y)
+{
+    uint16_t color = UI_GetBorderColor(item);
+
+    int16_t centerX =
+        x + (UI_ELEMENT_WIDTH / 2);
+
+    int16_t centerY =
+        y + (UI_ELEMENT_HEIGHT / 2);
+
+    ST7735_DrawLine(
+        centerX,
+        centerY - UI_MANUAL_NODE_RADIUS,
+        centerX + UI_MANUAL_NODE_RADIUS,
+        centerY,
+        color);
+
+    ST7735_DrawLine(
+        centerX + UI_MANUAL_NODE_RADIUS,
+        centerY,
+        centerX,
+        centerY + UI_MANUAL_NODE_RADIUS,
+        color);
+
+    ST7735_DrawLine(
+        centerX,
+        centerY + UI_MANUAL_NODE_RADIUS,
+        centerX - UI_MANUAL_NODE_RADIUS,
+        centerY,
+        color);
+
+    ST7735_DrawLine(
+        centerX - UI_MANUAL_NODE_RADIUS,
+        centerY,
+        centerX,
+        centerY - UI_MANUAL_NODE_RADIUS,
+        color);
+}
+
+static void UI_DrawAutoNode(
+    int16_t x,
+    int16_t y)
+{
+    UI_FillCircle(
+        x + (UI_ELEMENT_WIDTH / 2),
+        y + (UI_ELEMENT_HEIGHT / 2),
+        UI_AUTO_NODE_RADIUS,
+        UI_COLOR_AUTO_NODE);
+}
+
+static void UI_DrawItem(
+    const UI_Item *item,
+    int16_t x,
+    int16_t y)
+{
+    switch (item->type)
     {
-        uint16_t itemWidth =
-            UI_GetItemWidth(&uiItems[i]);
+        case UI_ITEM_LOOP:
+            UI_DrawLoop(item, x, y);
+            break;
 
-        int16_t itemY =
-            centerY -
-            (UI_ITEM_HEIGHT / 2);
+        case UI_ITEM_INPUT:
+        case UI_ITEM_OUTPUT:
+            UI_DrawIO(item, x, y);
+            break;
 
-        uiGeometry[i].itemId =
-            uiItems[i].id;
+        case UI_ITEM_MANUAL_NODE:
+            UI_DrawManualNode(item, x, y);
+            break;
 
-        uiGeometry[i].x =
-            (int16_t)x;
+        case UI_ITEM_AUTO_NODE:
+            UI_DrawAutoNode(x, y);
+            break;
 
-        uiGeometry[i].y =
-            itemY;
-
-        uiGeometry[i].width =
-            itemWidth;
-
-        uiGeometry[i].height =
-            UI_ITEM_HEIGHT;
-
-        uiGeometry[i].visible =
-            0;
-
-
-        if ((x + itemWidth) <=
-            (UI_DISPLAY_WIDTH -
-             UI_MARGIN_RIGHT))
-        {
-            uiGeometry[i].visible = 1;
-        }
-
-
-        x +=
-            itemWidth +
-            UI_COLUMN_SPACING;
+        default:
+            break;
     }
 }
 
 /* -------------------------------------------------------------------------- */
 /* Connection points                                                          */
 /* -------------------------------------------------------------------------- */
+
+static int16_t UI_GetConnectionY(
+    const UI_ItemGeometry *geometry)
+{
+    return geometry->y + (geometry->height / 2);
+}
 
 static int16_t UI_GetInputX(
     const UI_ItemGeometry *geometry,
@@ -540,19 +541,14 @@ static int16_t UI_GetInputX(
     if (item->type == UI_ITEM_INPUT ||
         item->type == UI_ITEM_OUTPUT)
     {
-        int16_t centerX =
-            geometry->x +
-            (geometry->width / 2);
-
         return
-            centerX -
+            geometry->x +
+            (geometry->width / 2) -
             UI_IO_CIRCLE_RADIUS;
     }
 
-
     return geometry->x;
 }
-
 
 static int16_t UI_GetOutputX(
     const UI_ItemGeometry *geometry,
@@ -561,114 +557,70 @@ static int16_t UI_GetOutputX(
     if (item->type == UI_ITEM_INPUT ||
         item->type == UI_ITEM_OUTPUT)
     {
-        int16_t centerX =
-            geometry->x +
-            (geometry->width / 2);
-
         return
-            centerX +
+            geometry->x +
+            (geometry->width / 2) +
             UI_IO_CIRCLE_RADIUS;
     }
 
-
     return
         geometry->x +
-        geometry->width -
-        1;
-}
-
-
-static int16_t UI_GetConnectionY(
-    const UI_ItemGeometry *geometry)
-{
-    return
-        geometry->y +
-        (geometry->height / 2);
+        geometry->width - 1;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Draw horizontal connection                                                 */
+/* Connections                                                                */
 /* -------------------------------------------------------------------------- */
 
-static void UI_DrawHorizontalConnection(
-    int16_t x0,
+static void UI_DrawHorizontalArrow(
+    int16_t startX,
     int16_t y,
-    int16_t x1,
-    uint16_t color)
+    int16_t targetX)
 {
-    if (x1 <= x0)
+    if (targetX <= startX)
     {
         return;
     }
 
+    int16_t tipX = targetX - 1;
+    int16_t baseX = tipX - 5;
 
-    /*
-     * Pfeilspitze endet unmittelbar vor dem Ziel-Item.
-     */
-    int16_t arrowTipX =
-        x1 - 1;
-
-    /*
-     * Vier Pixel lange Pfeilspitze.
-     */
-    int16_t arrowBaseX =
-        arrowTipX - 4;
-
-
-    /*
-     * Bei zu kurzem Abstand nur eine Linie zeichnen.
-     */
-    if (arrowBaseX <= x0)
+    if (baseX <= startX)
     {
         ST7735_DrawLine(
-            x0,
+            startX,
             y,
-            arrowTipX,
+            tipX,
             y,
-            color);
-
+            UI_COLOR_CONNECTION);
         return;
     }
 
-
-    /*
-     * Horizontale Hauptlinie.
-     */
     ST7735_DrawLine(
-        x0,
+        startX,
         y,
-        arrowBaseX,
+        baseX,
         y,
-        color);
+        UI_COLOR_CONNECTION);
 
-
-    /*
-     * Größere Pfeilspitze.
-     */
     ST7735_DrawLine(
-        arrowBaseX,
+        baseX,
         y - 3,
-        arrowTipX,
+        tipX,
         y,
-        color);
+        UI_COLOR_CONNECTION);
 
     ST7735_DrawLine(
-        arrowBaseX,
+        baseX,
         y + 3,
-        arrowTipX,
+        tipX,
         y,
-        color);
+        UI_COLOR_CONNECTION);
 }
-
-/* -------------------------------------------------------------------------- */
-/* Draw all connections                                                       */
-/* -------------------------------------------------------------------------- */
 
 static void UI_DrawConnections(void)
 {
-    for (uint16_t i = 0;
-         i < UI_CONNECTION_COUNT;
-         i++)
+    for (uint16_t i = 0; i < UI_CONNECTION_COUNT; i++)
     {
         int16_t sourceIndex =
             UI_FindItemIndexById(
@@ -678,108 +630,125 @@ static void UI_DrawConnections(void)
             UI_FindItemIndexById(
                 uiConnections[i].targetId);
 
-
-        if (sourceIndex < 0 ||
-            targetIndex < 0)
+        if (sourceIndex < 0 || targetIndex < 0)
         {
             continue;
         }
 
-
-        const UI_ItemGeometry *source =
+        const UI_ItemGeometry *sourceGeometry =
             &uiGeometry[sourceIndex];
 
-        const UI_ItemGeometry *target =
+        const UI_ItemGeometry *targetGeometry =
             &uiGeometry[targetIndex];
 
-
-        /*
-         * Connections are currently only drawn when
-         * both items are inside the viewport.
-         */
-        if (!source->visible ||
-            !target->visible)
+        if (!sourceGeometry->visible ||
+            !targetGeometry->visible)
         {
             continue;
         }
 
-
-     int16_t sourceX =
-    UI_GetOutputX(
-        source,
-        &uiItems[sourceIndex]
-    );
-
-int16_t targetX =
-    UI_GetInputX(
-        target,
-        &uiItems[targetIndex]
-    );
-
         int16_t sourceY =
-            UI_GetConnectionY(source);
+            UI_GetConnectionY(sourceGeometry);
 
         int16_t targetY =
-            UI_GetConnectionY(target);
+            UI_GetConnectionY(targetGeometry);
 
-
-        /*
-         * Current test structure uses one lane only.
-         */
-        if (sourceY == targetY)
+        if (sourceY != targetY)
         {
-            UI_DrawHorizontalConnection(
-                sourceX + 1,
-                sourceY,
-                targetX,
-                ST7735_WHITE);
+            continue;
+        }
+
+        int16_t sourceX =
+            UI_GetOutputX(
+                sourceGeometry,
+                &uiItems[sourceIndex]);
+
+        int16_t targetX =
+            UI_GetInputX(
+                targetGeometry,
+                &uiItems[targetIndex]);
+
+        UI_DrawHorizontalArrow(
+            sourceX + 1,
+            sourceY,
+            targetX);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Footer                                                                     */
+/* -------------------------------------------------------------------------- */
+
+static const UI_Item *UI_GetFocusedItem(void)
+{
+    for (uint16_t i = 0; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].focus == UI_FOCUS_SELECTED ||
+            uiItems[i].focus == UI_FOCUS_GRABBED)
+        {
+            return &uiItems[i];
         }
     }
+
+    return NULL;
+}
+
+static void UI_DrawFooter(void)
+{
+    const UI_Item *focusedItem =
+        UI_GetFocusedItem();
+
+    ST7735_FillRect(
+        0,
+        UI_FOOTER_TOP,
+        UI_DISPLAY_WIDTH,
+        UI_FOOTER_HEIGHT,
+        UI_COLOR_BACKGROUND);
+
+    if (focusedItem == NULL)
+    {
+        return;
+    }
+
+    UI_DrawCenteredText(
+        0,
+        UI_FOOTER_TOP,
+        UI_DISPLAY_WIDTH,
+        UI_FOOTER_HEIGHT,
+        focusedItem->longName,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public interface                                                           */
+/* -------------------------------------------------------------------------- */
+
+void UI_Init(void)
+{
 }
 
 void UI_Draw(void)
 {
-    /*
-     * Clear complete display.
-     */
-    ST7735_FillScreen(
-        UI_COLOR_BACKGROUND);
+    ST7735_FillScreen(UI_COLOR_BACKGROUND);
 
-
-    /*
-     * Calculate every item position before drawing.
-     *
-     * This is necessary because connections must know
-     * the positions of source and target items.
-     */
     UI_CalculateGeometry();
 
-
-    /*
-     * Draw connections first.
-     *
-     * Items are drawn afterward so that item borders
-     * cover the endpoints of the connection lines.
-     */
     UI_DrawConnections();
 
-
-    /*
-     * Draw items above the connection layer.
-     */
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
+    for (uint16_t i = 0; i < UI_ITEM_COUNT; i++)
     {
         if (!uiGeometry[i].visible)
         {
             continue;
         }
 
-
         UI_DrawItem(
             &uiItems[i],
-            (uint16_t)uiGeometry[i].x,
-            (uint16_t)uiGeometry[i].y);
+            uiGeometry[i].x,
+            uiGeometry[i].y);
     }
+
+    UI_DrawFooter();
 }
