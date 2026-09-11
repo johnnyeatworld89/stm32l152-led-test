@@ -640,10 +640,20 @@ static void UI_DrawLoop(
     int16_t x,
     int16_t y)
 {
-    uint16_t fillColor = UI_GetFillColor(item);
-    uint16_t borderColor = UI_GetBorderColor(item);
-    uint16_t textColor = UI_GetTextColor(item);
+    uint16_t fillColor =
+        UI_GetFillColor(item);
 
+    uint16_t borderColor =
+        UI_GetBorderColor(item);
+
+    uint16_t textColor =
+        UI_GetTextColor(item);
+
+
+    /*
+     * Gefüllter Loop-Kasten mit leicht
+     * abgerundeten Ecken.
+     */
     UI_FillRoundedRect(
         x,
         y,
@@ -651,8 +661,12 @@ static void UI_DrawLoop(
         UI_ELEMENT_HEIGHT,
         UI_LOOP_CORNER_RADIUS,
         fillColor
-        );
+    );
 
+
+    /*
+     * Äußerer Rahmen.
+     */
     UI_DrawRoundedRect(
         x,
         y,
@@ -660,20 +674,31 @@ static void UI_DrawLoop(
         UI_ELEMENT_HEIGHT,
         UI_LOOP_CORNER_RADIUS,
         borderColor
-        );
+    );
 
+
+    /*
+     * Ausgewählte und gegriffene Loops
+     * erhalten einen zweiten Rahmen.
+     */
     if (item->focus == UI_FOCUS_SELECTED ||
         item->focus == UI_FOCUS_GRABBED)
     {
-       UI_DrawRoundedRect(
+        UI_DrawRoundedRect(
             x + 1,
             y + 1,
             UI_ELEMENT_WIDTH - 2,
             UI_ELEMENT_HEIGHT - 2,
             UI_LOOP_CORNER_RADIUS,
             borderColor
-            );
+        );
+    }
 
+
+    /*
+     * Im Loop-Kasten wird immer nur
+     * der Kurzname angezeigt.
+     */
     UI_DrawCenteredText(
         (uint16_t)x,
         (uint16_t)y,
@@ -682,75 +707,102 @@ static void UI_DrawLoop(
         item->shortName,
         textColor,
         fillColor,
-        1);
+        1
+    );
 }
+
 
 static void UI_DrawIO(
     const UI_Item *item,
     int16_t x,
     int16_t y)
 {
-    uint16_t borderColor = UI_GetBorderColor(item);
+    uint16_t borderColor =
+        UI_GetBorderColor(item);
 
+
+    /*
+     * Kreismittelpunkt liegt auf der horizontalen
+     * Verbindungsebene des Rasters.
+     */
     int16_t centerX =
         x + (UI_ELEMENT_WIDTH / 2);
 
     int16_t centerY =
         y + (UI_ELEMENT_HEIGHT / 2);
 
+
+    /*
+     * Kreis zeichnen.
+     */
     UI_DrawCircle(
         centerX,
         centerY,
         UI_IO_CIRCLE_RADIUS,
-        borderColor);
+        borderColor
+    );
 
+
+    /*
+     * Mittelpunkt als kleiner Anschluss-/Referenzpunkt.
+     */
     ST7735_DrawPixel(
         centerX,
         centerY,
-        borderColor);
+        borderColor
+    );
 
-    UI_DrawCenteredText(
-        uint16_t textWidth =
-    Font5x7_GetStringWidth(
-        item->shortName,
-        1
-            );
-        
-        int16_t textX =
-            centerX -
-            ((int16_t)textWidth / 2);
-        
-        if (textX < x)
-        {
-            textX = x;
-        }
-        
-        if ((textX + textWidth) >
-            (x + UI_ELEMENT_WIDTH))
-        {
-            textX =
-                x +
-                UI_ELEMENT_WIDTH -
-                textWidth;
-        }
-        
-        uint16_t textY =
-            (uint16_t)(
-                centerY +
-                UI_IO_CIRCLE_RADIUS +
-                3
-            );
-        
-        Font5x7_DrawString(
-            (uint16_t)textX,
-            textY,
+
+    /*
+     * Textbreite bestimmen und den Text direkt
+     * zum Kreismittelpunkt zentrieren.
+     */
+    uint16_t textWidth =
+        Font5x7_GetStringWidth(
             item->shortName,
-            UI_COLOR_TEXT_LIGHT,
-            UI_COLOR_BACKGROUND,
             1
         );
-}
 
+    int16_t textX =
+        centerX -
+        ((int16_t)textWidth / 2);
+
+
+    /*
+     * Text innerhalb der Rasterzelle begrenzen.
+     */
+    if (textX < x)
+    {
+        textX = x;
+    }
+
+    if ((textX + (int16_t)textWidth) >
+        (x + UI_ELEMENT_WIDTH))
+    {
+        textX =
+            x +
+            UI_ELEMENT_WIDTH -
+            (int16_t)textWidth;
+    }
+
+
+    uint16_t textY =
+        (uint16_t)(
+            centerY +
+            UI_IO_CIRCLE_RADIUS +
+            3
+        );
+
+
+    Font5x7_DrawString(
+        (uint16_t)textX,
+        textY,
+        item->shortName,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1
+    );
+}
 static void UI_DrawManualNode(
     const UI_Item *item,
     int16_t x,
