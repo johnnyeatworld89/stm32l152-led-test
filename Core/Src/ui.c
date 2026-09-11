@@ -524,18 +524,32 @@ static uint16_t UI_GetFocusColor(
     }
 }
 
-static uint16_t UI_GetTextColor(const UI_Item *item)
+static uint16_t UI_GetTextColor(
+    const UI_Item *item)
 {
-    if (item != NULL &&
-        item->type == UI_ITEM_LOOP &&
-        item->loopStatus == UI_LOOP_STATUS_ACTIVE_UNCONFIRMED)
+    if (item == NULL)
     {
-        return UI_COLOR_TEXT_DARK;
+        return UI_COLOR_TEXT_LIGHT;
+    }
+
+    /*
+     * Schwarzer Text auf grüner und gelber Füllung.
+     *
+     * Auf schwarzer Füllung bleibt der Text weiß.
+     */
+    if (item->type == UI_ITEM_LOOP)
+    {
+        if (item->loopStatus ==
+                UI_LOOP_STATUS_ACTIVE_CONFIRMED ||
+            item->loopStatus ==
+                UI_LOOP_STATUS_ACTIVE_UNCONFIRMED)
+        {
+            return UI_COLOR_TEXT_DARK;
+        }
     }
 
     return UI_COLOR_TEXT_LIGHT;
 }
-
 static void UI_DrawCenteredText(
     uint16_t x,
     uint16_t y,
@@ -1017,9 +1031,147 @@ static void UI_DrawConnectionArrow(
     );
 }
 
+
+
+/* -------------------------------------------------------------------------- */
+/* Draw arrowhead at target point                                             */
+/* -------------------------------------------------------------------------- */
+
+static void UI_DrawArrowHead(
+    int16_t sourceX,
+    int16_t sourceY,
+    int16_t targetX,
+    int16_t targetY,
+    uint16_t color)
+{
+    int16_t dx =
+        targetX - sourceX;
+
+    int16_t dy =
+        targetY - sourceY;
+
+    /*
+     * Alle Verbindungen verlaufen grundsätzlich
+     * von links nach rechts.
+     */
+    if (dx <= 0)
+    {
+        return;
+    }
+
+
+    int16_t absoluteDy =
+        (dy < 0) ? -dy : dy;
+
+
+    /*
+     * Nahezu horizontale Verbindung.
+     */
+    if (absoluteDy <= 2)
+    {
+        ST7735_DrawLine(
+            targetX - 4,
+            targetY - 3,
+            targetX,
+            targetY,
+            color);
+
+        ST7735_DrawLine(
+            targetX - 4,
+            targetY + 3,
+            targetX,
+            targetY,
+            color);
+
+        return;
+    }
+
+
+    /*
+     * Verbindung verläuft nach rechts unten.
+     */
+    if (dy > 0)
+    {
+        ST7735_DrawLine(
+            targetX - 5,
+            targetY - 1,
+            targetX,
+            targetY,
+            color);
+
+        ST7735_DrawLine(
+            targetX - 2,
+            targetY - 5,
+            targetX,
+            targetY,
+            color);
+
+        return;
+    }
+
+
+    /*
+     * Verbindung verläuft nach rechts oben.
+     */
+    ST7735_DrawLine(
+        targetX - 5,
+        targetY + 1,
+        targetX,
+        targetY,
+        color);
+
+    ST7735_DrawLine(
+        targetX - 2,
+        targetY + 5,
+        targetX,
+        targetY,
+        color);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Draw direct connection with arrowhead                                      */
+/* -------------------------------------------------------------------------- */
+
+static void UI_DrawDirectConnection(
+    int16_t sourceX,
+    int16_t sourceY,
+    int16_t targetX,
+    int16_t targetY,
+    uint16_t color)
+{
+    if (targetX <= sourceX)
+    {
+        return;
+    }
+
+
+    /*
+     * Hauptlinie bis zum Zielpunkt.
+     */
+    ST7735_DrawLine(
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        color);
+
+
+    /*
+     * Pfeilspitze am Eingang des Ziel-Items.
+     */
+    UI_DrawArrowHead(
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        color);
+}
+
 static void UI_DrawConnections(void)
 {
-    for (uint16_t i = 0; i < UI_CONNECTION_COUNT; i++)
+    for (uint16_t i = 0;
+         i < UI_CONNECTION_COUNT;
+         i++)
     {
         int16_t sourceIndex =
             UI_FindItemIndexById(
@@ -1029,10 +1181,13 @@ static void UI_DrawConnections(void)
             UI_FindItemIndexById(
                 uiConnections[i].targetId);
 
-        if (sourceIndex < 0 || targetIndex < 0)
+
+        if (sourceIndex < 0 ||
+            targetIndex < 0)
         {
             continue;
         }
+
 
         const UI_ItemGeometry *sourceGeometry =
             &uiGeometry[sourceIndex];
@@ -1040,17 +1195,12 @@ static void UI_DrawConnections(void)
         const UI_ItemGeometry *targetGeometry =
             &uiGeometry[targetIndex];
 
+
         if (!sourceGeometry->visible ||
             !targetGeometry->visible)
         {
             continue;
         }
-
-        int16_t sourceY =
-            UI_GetConnectionY(sourceGeometry);
-
-        int16_t targetY =
-            UI_GetConnectionY(targetGeometry);
 
 
         int16_t sourceX =
@@ -1063,13 +1213,31 @@ static void UI_DrawConnections(void)
                 targetGeometry,
                 &uiItems[targetIndex]);
 
-        UI_DrawConnectionArrow(
-        sourceX + 1,
-        sourceY,
-        targetX,
-        targetY);
-    }
-}
+        int16_t sourceY =
+            UI_GetConnectionY(
+                sourceGeometry);
+
+        int16_t targetY =
+            UI_GetConnectionY(
+                targetGeometry);
+
+
+        /*
+         * Verbindung vom Ausgang der Quelle bis kurz
+         * vor den Eingang des Ziel-Items zeichnen.
+         *
+         * sourceX + 1:
+         * Start direkt rechts neben der Quelle.
+         *
+         * targetX - 1:
+         * Pfeilspitze endet unmittelbar vor dem Ziel.
+         */
+        UI_DrawDirectConnection(
+            sourceX + 1,
+            sourceY,
+            targetX - 1,
+            targetY,
+            ST7735_WHITE
 
 /* -------------------------------------------------------------------------- */
 /* Footer                                                                     */
