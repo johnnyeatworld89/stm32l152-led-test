@@ -57,7 +57,7 @@
 #define UI_FOOTER_HEIGHT             \
     (UI_DISPLAY_HEIGHT - UI_FOOTER_TOP)
 
-#define UI_IO_CIRCLE_RADIUS          4
+#define UI_IO_CIRCLE_RADIUS          7
 #define UI_MANUAL_NODE_RADIUS        6
 #define UI_AUTO_NODE_RADIUS          3
 
@@ -93,7 +93,7 @@ static UI_Item uiItems[] =
         .id = 3,
         .type = UI_ITEM_LOOP,
         .order = 1,
-        .lane = -1,
+        .lane = 0,
         .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
         .focus = UI_FOCUS_SELECTED,
         .shortName = "L02",
@@ -102,8 +102,30 @@ static UI_Item uiItems[] =
 
     {
         .id = 4,
-        .type = UI_ITEM_OUTPUT,
+        .type = UI_ITEM_LOOP,
         .order = 2,
+        .lane = 1,
+        .loopStatus = UI_LOOP_STATUS_ACTIVE_UNCONFIRMED,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L03",
+        .longName = "Loop 03"
+    },
+
+    {
+        .id = 5,
+        .type = UI_ITEM_LOOP,
+        .order = 2,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L04",
+        .longName = "Loop 04"
+    },
+
+    {
+        .id = 6,
+        .type = UI_ITEM_OUTPUT,
+        .order = 3,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -117,9 +139,8 @@ static UI_Item uiItems[] =
 
 static UI_Connection uiConnections[] =
 {
-    /*
-     * Split after IN1.
-     */
+    /* Aufteilung hinter IN1 */
+
     {
         .sourceId = 1,
         .targetId = 2
@@ -130,9 +151,9 @@ static UI_Connection uiConnections[] =
         .targetId = 3
     },
 
-    /*
-     * Merge before OUT1.
-     */
+
+    /* Zwei parallele Signalwege */
+
     {
         .sourceId = 2,
         .targetId = 4
@@ -140,7 +161,20 @@ static UI_Connection uiConnections[] =
 
     {
         .sourceId = 3,
-        .targetId = 4
+        .targetId = 5
+    },
+
+
+    /* Zusammenführung vor OUT1 */
+
+    {
+        .sourceId = 4,
+        .targetId = 6
+    },
+
+    {
+        .sourceId = 5,
+        .targetId = 6
     }
 };
 
@@ -607,40 +641,13 @@ static void UI_DrawHorizontalArrow(
         return;
     }
 
-    int16_t tipX = targetX - 1;
-    int16_t baseX = tipX - 5;
-
-    if (baseX <= startX)
-    {
-        ST7735_DrawLine(
-            startX,
-            y,
-            tipX,
-            y,
-            UI_COLOR_CONNECTION);
-        return;
-    }
-
     ST7735_DrawLine(
         startX,
         y,
-        baseX,
+        targetX - 1,
         y,
-        UI_COLOR_CONNECTION);
-
-    ST7735_DrawLine(
-        baseX,
-        y - 3,
-        tipX,
-        y,
-        UI_COLOR_CONNECTION);
-
-    ST7735_DrawLine(
-        baseX,
-        y + 3,
-        tipX,
-        y,
-        UI_COLOR_CONNECTION);
+        UI_COLOR_CONNECTION
+    );
 }
 
 static void UI_DrawConnectionArrow(
@@ -649,19 +656,11 @@ static void UI_DrawConnectionArrow(
     int16_t targetX,
     int16_t targetY)
 {
-    /*
-     * Connections must always move from left to right.
-     */
     if (targetX <= startX)
     {
         return;
     }
 
-
-    /*
-     * Same lane:
-     * Use the existing optimized horizontal arrow.
-     */
     if (startY == targetY)
     {
         UI_DrawHorizontalArrow(
@@ -673,31 +672,11 @@ static void UI_DrawConnectionArrow(
         return;
     }
 
-
-    /*
-     * Different lanes:
-     *
-     * The target point is moved one pixel away from
-     * the target item so that the arrowhead remains visible.
-     */
-    int16_t arrowTipX =
-        targetX - 1;
-
-    int16_t arrowTipY =
-        targetY;
-
-
-    /*
-     * Draw the diagonal main connection.
-     *
-     * ST7735_DrawArrow() also draws an arrowhead
-     * at the target side.
-     */
-    ST7735_DrawArrow(
+    ST7735_DrawLine(
         startX,
         startY,
-        arrowTipX,
-        arrowTipY,
+        targetX - 1,
+        targetY,
         UI_COLOR_CONNECTION
     );
 }
@@ -776,30 +755,104 @@ static const UI_Item *UI_GetFocusedItem(void)
 
 static void UI_DrawFooter(void)
 {
-    const UI_Item *focusedItem =
-        UI_GetFocusedItem();
+    int16_t focusedIndex = -1;
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].focus == UI_FOCUS_SELECTED ||
+            uiItems[i].focus == UI_FOCUS_GRABBED)
+        {
+            focusedIndex = (int16_t)i;
+            break;
+        }
+    }
+
 
     ST7735_FillRect(
         0,
         UI_FOOTER_TOP,
         UI_DISPLAY_WIDTH,
         UI_FOOTER_HEIGHT,
-        UI_COLOR_BACKGROUND);
+        UI_COLOR_BACKGROUND
+    );
 
-    if (focusedItem == NULL)
+
+    if (focusedIndex < 0)
     {
         return;
     }
 
-    UI_DrawCenteredText(
-        0,
-        UI_FOOTER_TOP,
-        UI_DISPLAY_WIDTH,
-        UI_FOOTER_HEIGHT,
+
+    if (!uiGeometry[focusedIndex].visible)
+    {
+        return;
+    }
+
+
+    const UI_Item *focusedItem =
+        &uiItems[focusedIndex];
+
+    const UI_ItemGeometry *geometry =
+        &uiGeometry[focusedIndex];
+
+
+    uint16_t textWidth =
+        Font5x7_GetStringWidth(
+            focusedItem->longName,
+            1
+        );
+
+
+    int16_t itemCenterX =
+        geometry->x +
+        (geometry->width / 2);
+
+    int16_t textX =
+        itemCenterX -
+        ((int16_t)textWidth / 2);
+
+
+    /*
+     * Text am linken und rechten Displayrand begrenzen.
+     */
+    if (textX < 0)
+    {
+        textX = 0;
+    }
+
+    if ((textX + textWidth) >
+        UI_DISPLAY_WIDTH)
+    {
+        textX =
+            UI_DISPLAY_WIDTH -
+            textWidth;
+    }
+
+
+    uint16_t textHeight =
+        Font5x7_GetHeight(1);
+
+    uint16_t textY =
+        UI_FOOTER_TOP;
+
+    if (textHeight < UI_FOOTER_HEIGHT)
+    {
+        textY +=
+            (UI_FOOTER_HEIGHT -
+             textHeight) / 2;
+    }
+
+
+    Font5x7_DrawString(
+        (uint16_t)textX,
+        textY,
         focusedItem->longName,
         UI_COLOR_TEXT_LIGHT,
         UI_COLOR_BACKGROUND,
-        1);
+        1
+    );
 }
 
 /* -------------------------------------------------------------------------- */
