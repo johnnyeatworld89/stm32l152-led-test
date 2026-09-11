@@ -80,6 +80,10 @@
 #define UI_MANUAL_NODE_RADIUS        6
 #define UI_AUTO_NODE_RADIUS          3
 
+#define UI_ARROW_LENGTH              5
+#define UI_ARROW_HALF_WIDTH          3
+#define UI_ARROW_FIXED_SCALE         256
+
 /* -------------------------------------------------------------------------- */
 /* Temporary test data                                                        */
 /* -------------------------------------------------------------------------- */
@@ -1342,18 +1346,166 @@ static void UI_DrawArrowHead(
 /* Draw direct connection with arrowhead                                      */
 /* -------------------------------------------------------------------------- */
 
+static int32_t UI_TriangleEdge(
+    int16_t ax,
+    int16_t ay,
+    int16_t bx,
+    int16_t by,
+    int16_t px,
+    int16_t py)
+{
+    return
+        ((int32_t)(px - ax) *
+         (int32_t)(by - ay)) -
+        ((int32_t)(py - ay) *
+         (int32_t)(bx - ax));
+}
+
+
+static void UI_FillTriangle(
+    int16_t x0,
+    int16_t y0,
+    int16_t x1,
+    int16_t y1,
+    int16_t x2,
+    int16_t y2,
+    uint16_t color)
+{
+    int16_t minX = x0;
+    int16_t maxX = x0;
+    int16_t minY = y0;
+    int16_t maxY = y0;
+
+
+    if (x1 < minX)
+    {
+        minX = x1;
+    }
+
+    if (x2 < minX)
+    {
+        minX = x2;
+    }
+
+    if (x1 > maxX)
+    {
+        maxX = x1;
+    }
+
+    if (x2 > maxX)
+    {
+        maxX = x2;
+    }
+
+
+    if (y1 < minY)
+    {
+        minY = y1;
+    }
+
+    if (y2 < minY)
+    {
+        minY = y2;
+    }
+
+    if (y1 > maxY)
+    {
+        maxY = y1;
+    }
+
+    if (y2 > maxY)
+    {
+        maxY = y2;
+    }
+
+
+    /*
+     * Begrenzung auf den sichtbaren Bildschirm.
+     */
+    if (minX < 0)
+    {
+        minX = 0;
+    }
+
+    if (minY < 0)
+    {
+        minY = 0;
+    }
+
+    if (maxX >= UI_DISPLAY_WIDTH)
+    {
+        maxX = UI_DISPLAY_WIDTH - 1;
+    }
+
+    if (maxY >= UI_DISPLAY_HEIGHT)
+    {
+        maxY = UI_DISPLAY_HEIGHT - 1;
+    }
+
+
+    for (int16_t y = minY;
+         y <= maxY;
+         y++)
+    {
+        for (int16_t x = minX;
+             x <= maxX;
+             x++)
+        {
+            int32_t edge0 =
+                UI_TriangleEdge(
+                    x0, y0,
+                    x1, y1,
+                    x, y
+                );
+
+            int32_t edge1 =
+                UI_TriangleEdge(
+                    x1, y1,
+                    x2, y2,
+                    x, y
+                );
+
+            int32_t edge2 =
+                UI_TriangleEdge(
+                    x2, y2,
+                    x0, y0,
+                    x, y
+                );
+
+
+            /*
+             * Der Punkt liegt innerhalb des Dreiecks,
+             * wenn alle Kantenergebnisse dasselbe
+             * Vorzeichen besitzen.
+             */
+            uint8_t hasNegative =
+                (edge0 < 0) ||
+                (edge1 < 0) ||
+                (edge2 < 0);
+
+            uint8_t hasPositive =
+                (edge0 > 0) ||
+                (edge1 > 0) ||
+                (edge2 > 0);
+
+
+            if (!(hasNegative && hasPositive))
+            {
+                ST7735_DrawPixel(
+                    x,
+                    y,
+                    color
+                );
+            }
+        }
+    }
+}
 static void UI_DrawDirectConnection(
     int16_t startX,
     int16_t startY,
     int16_t targetX,
     int16_t targetY)
 {
-    if (targetX <= startX)
-    {
-        return;
-    }
-
-
     int16_t deltaX =
         targetX - startX;
 
@@ -1362,98 +1514,159 @@ static void UI_DrawDirectConnection(
 
 
     /*
-     * Horizontaler Pfeil.
+     * Alle Verbindungen müssen nach rechts verlaufen.
      */
-    if (deltaY == 0)
+    if (deltaX <= 0)
     {
-        int16_t tipX =
-            targetX - 1;
-
-        int16_t baseX =
-            tipX - 5;
-
-
-        ST7735_DrawLine(
-            startX,
-            startY,
-            baseX,
-            startY,
-            UI_COLOR_CONNECTION
-        );
-
-        ST7735_DrawLine(
-            baseX,
-            startY - 3,
-            tipX,
-            startY,
-            UI_COLOR_CONNECTION
-        );
-
-        ST7735_DrawLine(
-            baseX,
-            startY + 3,
-            tipX,
-            startY,
-            UI_COLOR_CONNECTION
-        );
-
         return;
     }
 
 
     /*
-     * Diagonaler Pfeil.
+     * Für die Normierung verwenden wir die größere
+     * der beiden Koordinatendifferenzen.
      *
-     * Die Pfeilspitze endet ungefähr zwei Pixel vor
-     * der eigentlichen Zielkontur.
+     * Dadurch werden keine Fließkommazahlen und keine
+     * Quadratwurzel benötigt.
      */
-    int16_t directionY =
-        (deltaY > 0) ? 1 : -1;
+    int16_t absoluteX = deltaX;
 
-    int16_t tipX =
-        targetX - 2;
+    int16_t absoluteY =
+        (deltaY >= 0) ?
+        deltaY :
+        -deltaY;
 
-    int16_t tipY =
-        targetY -
-        (2 * directionY);
+    int16_t normalization =
+        (absoluteX > absoluteY) ?
+        absoluteX :
+        absoluteY;
+
+
+    if (normalization == 0)
+    {
+        return;
+    }
 
 
     /*
-     * Hauptlinie.
+     * Normierter Richtungsvektor im Festkommaformat.
+     */
+    int32_t directionX =
+        ((int32_t)deltaX *
+         UI_ARROW_FIXED_SCALE) /
+        normalization;
+
+    int32_t directionY =
+        ((int32_t)deltaY *
+         UI_ARROW_FIXED_SCALE) /
+        normalization;
+
+
+    /*
+     * Spitze liegt einen Pixel vor dem berechneten
+     * Anschlusspunkt. Dadurch bleibt die Spitze sichtbar,
+     * nachdem das Ziel-Item über der Verbindung gezeichnet wird.
+     */
+    int16_t tipX =
+        targetX -
+        (int16_t)(
+            directionX /
+            UI_ARROW_FIXED_SCALE
+        );
+
+    int16_t tipY =
+        targetY -
+        (int16_t)(
+            directionY /
+            UI_ARROW_FIXED_SCALE
+        );
+
+
+    /*
+     * Mittelpunkt der Pfeilbasis.
+     */
+    int16_t baseCenterX =
+        tipX -
+        (int16_t)(
+            (directionX *
+             UI_ARROW_LENGTH) /
+            UI_ARROW_FIXED_SCALE
+        );
+
+    int16_t baseCenterY =
+        tipY -
+        (int16_t)(
+            (directionY *
+             UI_ARROW_LENGTH) /
+            UI_ARROW_FIXED_SCALE
+        );
+
+
+    /*
+     * Senkrechter Vektor zur Verbindungsrichtung:
+     *
+     * perpendicularX = -directionY
+     * perpendicularY =  directionX
+     */
+    int16_t perpendicularX =
+        (int16_t)(
+            ((-directionY) *
+             UI_ARROW_HALF_WIDTH) /
+            UI_ARROW_FIXED_SCALE
+        );
+
+    int16_t perpendicularY =
+        (int16_t)(
+            (directionX *
+             UI_ARROW_HALF_WIDTH) /
+            UI_ARROW_FIXED_SCALE
+        );
+
+
+    /*
+     * Zwei Eckpunkte der Pfeilbasis.
+     */
+    int16_t base1X =
+        baseCenterX +
+        perpendicularX;
+
+    int16_t base1Y =
+        baseCenterY +
+        perpendicularY;
+
+    int16_t base2X =
+        baseCenterX -
+        perpendicularX;
+
+    int16_t base2Y =
+        baseCenterY -
+        perpendicularY;
+
+
+    /*
+     * Hauptlinie endet genau im Mittelpunkt der
+     * Pfeilbasis. Dadurch entsteht kein Versatz
+     * zwischen Hauptlinie und Pfeilspitze.
      */
     ST7735_DrawLine(
         startX,
         startY,
-        tipX,
-        tipY,
+        baseCenterX,
+        baseCenterY,
         UI_COLOR_CONNECTION
     );
 
 
     /*
-     * Kleine, rasteroptimierte Pfeilspitze.
-     *
-     * Für eine fallende Linie:
-     *
-     *      /
-     *    > 
-     *
-     * Für eine steigende Linie entsprechend gespiegelt.
+     * Gefüllte Pfeilspitze.
      */
-    ST7735_DrawLine(
-        tipX - 5,
-        tipY,
+    UI_FillTriangle(
         tipX,
         tipY,
-        UI_COLOR_CONNECTION
-    );
-
-    ST7735_DrawLine(
-        tipX - 1,
-        tipY -
-            (4 * directionY),
-        tipX,
-        tipY,
+        base1X,
+        base1Y,
+        base2X,
+        base2Y,
         UI_COLOR_CONNECTION
     );
 }
