@@ -77,30 +77,33 @@ static UI_Item uiItems[] =
         .shortName = "In1",
         .longName = "Input 1"
     },
+
     {
         .id = 2,
         .type = UI_ITEM_LOOP,
         .order = 1,
-        .lane = 0,
+        .lane = 1,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
         .shortName = "L01",
         .longName = "Loop 01"
     },
+
     {
         .id = 3,
         .type = UI_ITEM_LOOP,
-        .order = 2,
-        .lane = 0,
+        .order = 1,
+        .lane = -1,
         .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
         .focus = UI_FOCUS_SELECTED,
         .shortName = "L02",
         .longName = "Loop 02"
     },
+
     {
         .id = 4,
         .type = UI_ITEM_OUTPUT,
-        .order = 3,
+        .order = 2,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -114,9 +117,31 @@ static UI_Item uiItems[] =
 
 static UI_Connection uiConnections[] =
 {
-    { .sourceId = 1, .targetId = 2 },
-    { .sourceId = 2, .targetId = 3 },
-    { .sourceId = 3, .targetId = 4 }
+    /*
+     * Split after IN1.
+     */
+    {
+        .sourceId = 1,
+        .targetId = 2
+    },
+
+    {
+        .sourceId = 1,
+        .targetId = 3
+    },
+
+    /*
+     * Merge before OUT1.
+     */
+    {
+        .sourceId = 2,
+        .targetId = 4
+    },
+
+    {
+        .sourceId = 3,
+        .targetId = 4
+    }
 };
 
 #define UI_CONNECTION_COUNT \
@@ -618,6 +643,65 @@ static void UI_DrawHorizontalArrow(
         UI_COLOR_CONNECTION);
 }
 
+static void UI_DrawConnectionArrow(
+    int16_t startX,
+    int16_t startY,
+    int16_t targetX,
+    int16_t targetY)
+{
+    /*
+     * Connections must always move from left to right.
+     */
+    if (targetX <= startX)
+    {
+        return;
+    }
+
+
+    /*
+     * Same lane:
+     * Use the existing optimized horizontal arrow.
+     */
+    if (startY == targetY)
+    {
+        UI_DrawHorizontalArrow(
+            startX,
+            startY,
+            targetX
+        );
+
+        return;
+    }
+
+
+    /*
+     * Different lanes:
+     *
+     * The target point is moved one pixel away from
+     * the target item so that the arrowhead remains visible.
+     */
+    int16_t arrowTipX =
+        targetX - 1;
+
+    int16_t arrowTipY =
+        targetY;
+
+
+    /*
+     * Draw the diagonal main connection.
+     *
+     * ST7735_DrawArrow() also draws an arrowhead
+     * at the target side.
+     */
+    ST7735_DrawArrow(
+        startX,
+        startY,
+        arrowTipX,
+        arrowTipY,
+        UI_COLOR_CONNECTION
+    );
+}
+
 static void UI_DrawConnections(void)
 {
     for (uint16_t i = 0; i < UI_CONNECTION_COUNT; i++)
@@ -653,10 +737,6 @@ static void UI_DrawConnections(void)
         int16_t targetY =
             UI_GetConnectionY(targetGeometry);
 
-        if (sourceY != targetY)
-        {
-            continue;
-        }
 
         int16_t sourceX =
             UI_GetOutputX(
@@ -668,10 +748,11 @@ static void UI_DrawConnections(void)
                 targetGeometry,
                 &uiItems[targetIndex]);
 
-        UI_DrawHorizontalArrow(
-            sourceX + 1,
-            sourceY,
-            targetX);
+        UI_DrawConnectionArrow(
+        sourceX + 1,
+        sourceY,
+        targetX,
+        targetY);
     }
 }
 
