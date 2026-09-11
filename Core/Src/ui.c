@@ -19,11 +19,12 @@
 #define UI_DISPLAY_HEIGHT           128
 #define UI_MARGIN_LEFT              4
 #define UI_MARGIN_RIGHT             4
-#define UI_NORMAL_ITEM_WIDTH        24
-#define UI_SELECTED_ITEM_WIDTH      48
-#define UI_IO_ITEM_WIDTH            20
+#define UI_NORMAL_ITEM_WIDTH        22
+#define UI_SELECTED_ITEM_WIDTH      44
+#define UI_IO_ITEM_WIDTH            18
+
 #define UI_ITEM_HEIGHT              24
-#define UI_COLUMN_SPACING           4
+#define UI_COLUMN_SPACING           7
 #define UI_IO_CIRCLE_RADIUS         4
 #define UI_MANUAL_NODE_RADIUS       6
 #define UI_AUTO_NODE_RADIUS         3
@@ -331,23 +332,68 @@ static void UI_DrawLoop(const UI_Item *item, uint16_t x, uint16_t y)
                         name, textColor, fillColor, 1);
 }
 
-static void UI_DrawIO(const UI_Item *item, uint16_t x, uint16_t y)
+static void UI_DrawIO(
+    const UI_Item *item,
+    uint16_t x,
+    uint16_t y)
 {
-    uint16_t width = UI_GetItemWidth(item);
-    uint16_t borderColor = UI_GetBorderColor(item);
-    const char *name = UI_GetDisplayedName(item);
+    uint16_t width =
+        UI_GetItemWidth(item);
 
-    int16_t centerX = x + (width / 2);
-    int16_t centerY = y + UI_IO_CIRCLE_RADIUS + 1;
+    uint16_t borderColor =
+        UI_GetBorderColor(item);
 
-    UI_DrawCircle(centerX, centerY,
-                  UI_IO_CIRCLE_RADIUS, borderColor);
-    ST7735_DrawPixel(centerX, centerY, borderColor);
+    const char *name =
+        UI_GetDisplayedName(item);
 
-    uint16_t textY = y + (UI_IO_CIRCLE_RADIUS * 2) + 4;
-    UI_DrawCenteredText(x, textY, width, 7,
-                        name, UI_COLOR_TEXT_LIGHT,
-                        UI_COLOR_BACKGROUND, 1);
+
+    /*
+     * Der Kreis liegt exakt auf der horizontalen
+     * Verbindungsebene der Loop-Kästen.
+     */
+    int16_t centerX =
+        x + (width / 2);
+
+    int16_t centerY =
+        y + (UI_ITEM_HEIGHT / 2);
+
+
+    UI_DrawCircle(
+        centerX,
+        centerY,
+        UI_IO_CIRCLE_RADIUS,
+        borderColor);
+
+
+    /*
+     * Kleiner Mittelpunkt als sichtbarer Anschluss.
+     */
+    ST7735_DrawPixel(
+        centerX,
+        centerY,
+        borderColor);
+
+
+    /*
+     * Kurz- oder Langname unterhalb des Kreises.
+     */
+    uint16_t textY =
+        (uint16_t)(
+            centerY +
+            UI_IO_CIRCLE_RADIUS +
+            3
+        );
+
+
+    UI_DrawCenteredText(
+        x,
+        textY,
+        width,
+        7,
+        name,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1);
 }
 
 static void UI_DrawManualNode(const UI_Item *item,
@@ -488,15 +534,43 @@ static void UI_CalculateGeometry(void)
 /* -------------------------------------------------------------------------- */
 
 static int16_t UI_GetInputX(
-    const UI_ItemGeometry *geometry)
+    const UI_ItemGeometry *geometry,
+    const UI_Item *item)
 {
+    if (item->type == UI_ITEM_INPUT ||
+        item->type == UI_ITEM_OUTPUT)
+    {
+        int16_t centerX =
+            geometry->x +
+            (geometry->width / 2);
+
+        return
+            centerX -
+            UI_IO_CIRCLE_RADIUS;
+    }
+
+
     return geometry->x;
 }
 
 
 static int16_t UI_GetOutputX(
-    const UI_ItemGeometry *geometry)
+    const UI_ItemGeometry *geometry,
+    const UI_Item *item)
 {
+    if (item->type == UI_ITEM_INPUT ||
+        item->type == UI_ITEM_OUTPUT)
+    {
+        int16_t centerX =
+            geometry->x +
+            (geometry->width / 2);
+
+        return
+            centerX +
+            UI_IO_CIRCLE_RADIUS;
+    }
+
+
     return
         geometry->x +
         geometry->width -
@@ -522,9 +596,6 @@ static void UI_DrawHorizontalConnection(
     int16_t x1,
     uint16_t color)
 {
-    /*
-     * Not enough room for a visible connection.
-     */
     if (x1 <= x0)
     {
         return;
@@ -532,16 +603,21 @@ static void UI_DrawHorizontalConnection(
 
 
     /*
-     * Leave a small gap before the target item
-     * for the arrowhead.
+     * Pfeilspitze endet unmittelbar vor dem Ziel-Item.
      */
     int16_t arrowTipX =
         x1 - 1;
 
+    /*
+     * Vier Pixel lange Pfeilspitze.
+     */
     int16_t arrowBaseX =
-        arrowTipX - 3;
+        arrowTipX - 4;
 
 
+    /*
+     * Bei zu kurzem Abstand nur eine Linie zeichnen.
+     */
     if (arrowBaseX <= x0)
     {
         ST7735_DrawLine(
@@ -556,7 +632,7 @@ static void UI_DrawHorizontalConnection(
 
 
     /*
-     * Main line.
+     * Horizontale Hauptlinie.
      */
     ST7735_DrawLine(
         x0,
@@ -567,18 +643,18 @@ static void UI_DrawHorizontalConnection(
 
 
     /*
-     * Arrowhead at the target input.
+     * Größere Pfeilspitze.
      */
     ST7735_DrawLine(
         arrowBaseX,
-        y - 2,
+        y - 3,
         arrowTipX,
         y,
         color);
 
     ST7735_DrawLine(
         arrowBaseX,
-        y + 2,
+        y + 3,
         arrowTipX,
         y,
         color);
@@ -628,11 +704,17 @@ static void UI_DrawConnections(void)
         }
 
 
-        int16_t sourceX =
-            UI_GetOutputX(source);
+     int16_t sourceX =
+    UI_GetOutputX(
+        source,
+        &uiItems[sourceIndex]
+    );
 
-        int16_t targetX =
-            UI_GetInputX(target);
+int16_t targetX =
+    UI_GetInputX(
+        target,
+        &uiItems[targetIndex]
+    );
 
         int16_t sourceY =
             UI_GetConnectionY(source);
