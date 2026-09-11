@@ -38,6 +38,22 @@
 #define UI_CONNECTION_WIDTH          18
 #define UI_VERTICAL_CONNECTION_HEIGHT 16
 
+/*
+ * Diagonaler Anschlussabstand des IN-/OUT-Kreises.
+ *
+ * Bei Radius 7 liegt ein 45-Grad-Punkt ungefähr
+ * fünf Pixel horizontal und vertikal vom Mittelpunkt entfernt.
+ */
+#define UI_IO_DIAGONAL_OFFSET       5
+
+/*
+ * Abstand des diagonalen Loop-Anschlusses von der
+ * theoretischen scharfen Ecke.
+ *
+ * Diese Position liegt auf der sichtbaren Rundung.
+ */
+#define UI_LOOP_DIAGONAL_INSET      1
+
 #define UI_GRID_CONTENT_WIDTH        \
     ((UI_VISIBLE_ELEMENT_COLUMNS * UI_ELEMENT_WIDTH) + \
      ((UI_VISIBLE_ELEMENT_COLUMNS - 1) * UI_CONNECTION_WIDTH))
@@ -937,44 +953,238 @@ static void UI_DrawItem(
 /* Connection points                                                          */
 /* -------------------------------------------------------------------------- */
 
-static int16_t UI_GetConnectionY(
-    const UI_ItemGeometry *geometry)
+typedef struct
 {
-    return geometry->y + (geometry->height / 2);
-}
+    int16_t x;
+    int16_t y;
 
-static int16_t UI_GetInputX(
-    const UI_ItemGeometry *geometry,
-    const UI_Item *item)
+} UI_ConnectionPoint;
+
+
+static UI_ConnectionPoint UI_GetSourceConnectionPoint(
+    const UI_ItemGeometry *sourceGeometry,
+    const UI_Item *sourceItem,
+    int16_t targetY)
 {
-    if (item->type == UI_ITEM_INPUT ||
-        item->type == UI_ITEM_OUTPUT)
+    UI_ConnectionPoint point;
+
+    int16_t centerX =
+        sourceGeometry->x +
+        (sourceGeometry->width / 2);
+
+    int16_t centerY =
+        sourceGeometry->y +
+        (sourceGeometry->height / 2);
+
+
+    /*
+     * Horizontale Verbindung.
+     */
+    if (targetY == centerY)
     {
-        return
-            geometry->x +
-            (geometry->width / 2) -
-            UI_IO_CIRCLE_RADIUS;
+        if (sourceItem->type == UI_ITEM_INPUT ||
+            sourceItem->type == UI_ITEM_OUTPUT)
+        {
+            point.x =
+                centerX +
+                UI_IO_CIRCLE_RADIUS;
+        }
+        else
+        {
+            point.x =
+                sourceGeometry->x +
+                sourceGeometry->width -
+                1;
+        }
+
+        point.y = centerY;
+
+        return point;
     }
 
-    return geometry->x;
-}
 
-static int16_t UI_GetOutputX(
-    const UI_ItemGeometry *geometry,
-    const UI_Item *item)
-{
-    if (item->type == UI_ITEM_INPUT ||
-        item->type == UI_ITEM_OUTPUT)
+    /*
+     * Verbindung verläuft nach rechts oben.
+     *
+     * Quelle:
+     * - Loop: rechte obere Rundung
+     * - IN/OUT: 45-Grad-Position rechts oben
+     */
+    if (targetY < centerY)
     {
-        return
-            geometry->x +
-            (geometry->width / 2) +
-            UI_IO_CIRCLE_RADIUS;
+        if (sourceItem->type == UI_ITEM_INPUT ||
+            sourceItem->type == UI_ITEM_OUTPUT)
+        {
+            point.x =
+                centerX +
+                UI_IO_DIAGONAL_OFFSET;
+
+            point.y =
+                centerY -
+                UI_IO_DIAGONAL_OFFSET;
+        }
+        else
+        {
+            point.x =
+                sourceGeometry->x +
+                sourceGeometry->width -
+                1 -
+                UI_LOOP_DIAGONAL_INSET;
+
+            point.y =
+                sourceGeometry->y +
+                UI_LOOP_DIAGONAL_INSET;
+        }
+
+        return point;
     }
 
-    return
-        geometry->x +
-        geometry->width - 1;
+
+    /*
+     * Verbindung verläuft nach rechts unten.
+     *
+     * Quelle:
+     * - Loop: rechte untere Rundung
+     * - IN/OUT: 45-Grad-Position rechts unten
+     */
+    if (sourceItem->type == UI_ITEM_INPUT ||
+        sourceItem->type == UI_ITEM_OUTPUT)
+    {
+        point.x =
+            centerX +
+            UI_IO_DIAGONAL_OFFSET;
+
+        point.y =
+            centerY +
+            UI_IO_DIAGONAL_OFFSET;
+    }
+    else
+    {
+        point.x =
+            sourceGeometry->x +
+            sourceGeometry->width -
+            1 -
+            UI_LOOP_DIAGONAL_INSET;
+
+        point.y =
+            sourceGeometry->y +
+            sourceGeometry->height -
+            1 -
+            UI_LOOP_DIAGONAL_INSET;
+    }
+
+    return point;
+}
+
+static UI_ConnectionPoint UI_GetTargetConnectionPoint(
+    const UI_ItemGeometry *targetGeometry,
+    const UI_Item *targetItem,
+    int16_t sourceY)
+{
+    UI_ConnectionPoint point;
+
+    int16_t centerX =
+        targetGeometry->x +
+        (targetGeometry->width / 2);
+
+    int16_t centerY =
+        targetGeometry->y +
+        (targetGeometry->height / 2);
+
+
+    /*
+     * Horizontale Verbindung.
+     */
+    if (sourceY == centerY)
+    {
+        if (targetItem->type == UI_ITEM_INPUT ||
+            targetItem->type == UI_ITEM_OUTPUT)
+        {
+            point.x =
+                centerX -
+                UI_IO_CIRCLE_RADIUS;
+        }
+        else
+        {
+            point.x =
+                targetGeometry->x;
+        }
+
+        point.y = centerY;
+
+        return point;
+    }
+
+
+    /*
+     * Die Quelle liegt unterhalb des Ziels.
+     * Die Verbindung steigt nach rechts oben.
+     *
+     * Ziel:
+     * - Loop: linke untere Rundung
+     * - IN/OUT: 135-Grad-/links-unten-Position
+     */
+    if (sourceY > centerY)
+    {
+        if (targetItem->type == UI_ITEM_INPUT ||
+            targetItem->type == UI_ITEM_OUTPUT)
+        {
+            point.x =
+                centerX -
+                UI_IO_DIAGONAL_OFFSET;
+
+            point.y =
+                centerY +
+                UI_IO_DIAGONAL_OFFSET;
+        }
+        else
+        {
+            point.x =
+                targetGeometry->x +
+                UI_LOOP_DIAGONAL_INSET;
+
+            point.y =
+                targetGeometry->y +
+                targetGeometry->height -
+                1 -
+                UI_LOOP_DIAGONAL_INSET;
+        }
+
+        return point;
+    }
+
+
+    /*
+     * Die Quelle liegt oberhalb des Ziels.
+     * Die Verbindung fällt nach rechts unten.
+     *
+     * Ziel:
+     * - Loop: linke obere Rundung
+     * - IN/OUT: links oben
+     */
+    if (targetItem->type == UI_ITEM_INPUT ||
+        targetItem->type == UI_ITEM_OUTPUT)
+    {
+        point.x =
+            centerX -
+            UI_IO_DIAGONAL_OFFSET;
+
+        point.y =
+            centerY -
+            UI_IO_DIAGONAL_OFFSET;
+    }
+    else
+    {
+        point.x =
+            targetGeometry->x +
+            UI_LOOP_DIAGONAL_INSET;
+
+        point.y =
+            targetGeometry->y +
+            UI_LOOP_DIAGONAL_INSET;
+    }
+
+    return point;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1133,38 +1343,119 @@ static void UI_DrawArrowHead(
 /* -------------------------------------------------------------------------- */
 
 static void UI_DrawDirectConnection(
-    int16_t sourceX,
-    int16_t sourceY,
+    int16_t startX,
+    int16_t startY,
     int16_t targetX,
-    int16_t targetY,
-    uint16_t color)
+    int16_t targetY)
 {
-    if (targetX <= sourceX)
+    if (targetX <= startX)
     {
         return;
     }
 
 
+    int16_t deltaX =
+        targetX - startX;
+
+    int16_t deltaY =
+        targetY - startY;
+
+
     /*
-     * Hauptlinie bis zum Zielpunkt.
+     * Horizontaler Pfeil.
+     */
+    if (deltaY == 0)
+    {
+        int16_t tipX =
+            targetX - 1;
+
+        int16_t baseX =
+            tipX - 5;
+
+
+        ST7735_DrawLine(
+            startX,
+            startY,
+            baseX,
+            startY,
+            UI_COLOR_CONNECTION
+        );
+
+        ST7735_DrawLine(
+            baseX,
+            startY - 3,
+            tipX,
+            startY,
+            UI_COLOR_CONNECTION
+        );
+
+        ST7735_DrawLine(
+            baseX,
+            startY + 3,
+            tipX,
+            startY,
+            UI_COLOR_CONNECTION
+        );
+
+        return;
+    }
+
+
+    /*
+     * Diagonaler Pfeil.
+     *
+     * Die Pfeilspitze endet ungefähr zwei Pixel vor
+     * der eigentlichen Zielkontur.
+     */
+    int16_t directionY =
+        (deltaY > 0) ? 1 : -1;
+
+    int16_t tipX =
+        targetX - 2;
+
+    int16_t tipY =
+        targetY -
+        (2 * directionY);
+
+
+    /*
+     * Hauptlinie.
      */
     ST7735_DrawLine(
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-        color);
+        startX,
+        startY,
+        tipX,
+        tipY,
+        UI_COLOR_CONNECTION
+    );
 
 
     /*
-     * Pfeilspitze am Eingang des Ziel-Items.
+     * Kleine, rasteroptimierte Pfeilspitze.
+     *
+     * Für eine fallende Linie:
+     *
+     *      /
+     *    > 
+     *
+     * Für eine steigende Linie entsprechend gespiegelt.
      */
-    UI_DrawArrowHead(
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-        color);
+    ST7735_DrawLine(
+        tipX - 5,
+        tipY,
+        tipX,
+        tipY,
+        UI_COLOR_CONNECTION
+    );
+
+    ST7735_DrawLine(
+        tipX - 1,
+        tipY -
+            (4 * directionY),
+        tipX,
+        tipY,
+        UI_COLOR_CONNECTION
+    );
 }
 
 static void UI_DrawConnections(void)
@@ -1175,11 +1466,13 @@ static void UI_DrawConnections(void)
     {
         int16_t sourceIndex =
             UI_FindItemIndexById(
-                uiConnections[i].sourceId);
+                uiConnections[i].sourceId
+            );
 
         int16_t targetIndex =
             UI_FindItemIndexById(
-                uiConnections[i].targetId);
+                uiConnections[i].targetId
+            );
 
 
         if (sourceIndex < 0 ||
@@ -1195,6 +1488,12 @@ static void UI_DrawConnections(void)
         const UI_ItemGeometry *targetGeometry =
             &uiGeometry[targetIndex];
 
+        const UI_Item *sourceItem =
+            &uiItems[sourceIndex];
+
+        const UI_Item *targetItem =
+            &uiItems[targetIndex];
+
 
         if (!sourceGeometry->visible ||
             !targetGeometry->visible)
@@ -1203,45 +1502,38 @@ static void UI_DrawConnections(void)
         }
 
 
-        int16_t sourceX =
-            UI_GetOutputX(
+        int16_t sourceCenterY =
+            sourceGeometry->y +
+            (sourceGeometry->height / 2);
+
+        int16_t targetCenterY =
+            targetGeometry->y +
+            (targetGeometry->height / 2);
+
+
+        UI_ConnectionPoint sourcePoint =
+            UI_GetSourceConnectionPoint(
                 sourceGeometry,
-                &uiItems[sourceIndex]);
-
-        int16_t targetX =
-            UI_GetInputX(
-                targetGeometry,
-                &uiItems[targetIndex]);
-
-        int16_t sourceY =
-            UI_GetConnectionY(
-                sourceGeometry);
-
-        int16_t targetY =
-            UI_GetConnectionY(
-                targetGeometry);
-
-
-        /*
-         * Verbindung vom Ausgang der Quelle bis kurz
-         * vor den Eingang des Ziel-Items zeichnen.
-         *
-         * sourceX + 1:
-         * Start direkt rechts neben der Quelle.
-         *
-         * targetX - 1:
-         * Pfeilspitze endet unmittelbar vor dem Ziel.
-         */
-        UI_DrawDirectConnection(
-            sourceX + 1,
-            sourceY,
-            targetX - 1,
-            targetY,
-            ST7735_WHITE
+                sourceItem,
+                targetCenterY
             );
-         }
-    }
 
+        UI_ConnectionPoint targetPoint =
+            UI_GetTargetConnectionPoint(
+                targetGeometry,
+                targetItem,
+                sourceCenterY
+            );
+
+
+        UI_DrawDirectConnection(
+            sourcePoint.x,
+            sourcePoint.y,
+            targetPoint.x,
+            targetPoint.y
+        );
+    }
+}
 /* -------------------------------------------------------------------------- */
 /* Footer                                                                     */
 /* -------------------------------------------------------------------------- */
