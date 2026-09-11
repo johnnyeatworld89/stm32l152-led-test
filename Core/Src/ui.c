@@ -115,8 +115,8 @@ static UI_Item uiItems[] =
     {
         .id = 4,
         .type = UI_ITEM_LOOP,
-        .order = 2,
-        .lane = 1,
+        .order = 1,
+        .lane = -1,
         .loopStatus = UI_LOOP_STATUS_ACTIVE_UNCONFIRMED,
         .focus = UI_FOCUS_NONE,
         .shortName = "L03",
@@ -124,18 +124,8 @@ static UI_Item uiItems[] =
     },
     {
         .id = 5,
-        .type = UI_ITEM_LOOP,
-        .order = 2,
-        .lane = 0,
-        .loopStatus = UI_LOOP_STATUS_OFF,
-        .focus = UI_FOCUS_NONE,
-        .shortName = "L04",
-        .longName = "Loop 04"
-    },
-    {
-        .id = 6,
         .type = UI_ITEM_OUTPUT,
-        .order = 3,
+        .order = 2,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -150,14 +140,31 @@ static UI_Item uiItems[] =
 
 static UI_Connection uiConnections[] =
 {
-    { .sourceId = 1, .targetId = 2 },
-    { .sourceId = 1, .targetId = 3 },
-    { .sourceId = 2, .targetId = 4 },
-    { .sourceId = 3, .targetId = 5 },
-    { .sourceId = 4, .targetId = 6 },
-    { .sourceId = 5, .targetId = 6 }
+    {
+        .sourceId = 1,
+        .targetId = 2
+    },
+    {
+        .sourceId = 1,
+        .targetId = 3
+    },
+    {
+        .sourceId = 1,
+        .targetId = 4
+    },
+    {
+        .sourceId = 2,
+        .targetId = 5
+    },
+    {
+        .sourceId = 3,
+        .targetId = 5
+    },
+    {
+        .sourceId = 4,
+        .targetId = 5
+    }
 };
-
 #define UI_CONNECTION_COUNT \
     (sizeof(uiConnections) / sizeof(uiConnections[0]))
 
