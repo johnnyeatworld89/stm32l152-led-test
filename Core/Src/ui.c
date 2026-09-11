@@ -63,7 +63,10 @@
 #define UI_IO_DIAGONAL_OFFSET         5
 
 #define UI_MANUAL_NODE_RADIUS         6
-#define UI_AUTO_NODE_RADIUS           3
+#define UI_AUTO_NODE_RADIUS 6
+#define UI_AUTO_NODE_DIAGONAL_OFFSET 4
+#define UI_MANUAL_NODE_DIAGONAL_OFFSET 3
+
 
 #define UI_LOOP_CORNER_RADIUS         2
 #define UI_LOOP_DIAGONAL_INSET        1
@@ -94,38 +97,38 @@ static UI_Item uiItems[] =
     },
     {
         .id = 2,
-        .type = UI_ITEM_LOOP,
+        .type = UI_ITEM_MANUAL_NODE,
         .order = 1,
         .lane = 1,
         .loopStatus = UI_LOOP_STATUS_OFF,
-        .focus = UI_FOCUS_NONE,
-        .shortName = "L01",
-        .longName = "Loop 01"
+        .focus = UI_FOCUS_SELECTED,
+        .shortName = "N01",
+        .longName = "Node 01"
     },
     {
         .id = 3,
         .type = UI_ITEM_LOOP,
         .order = 1,
-        .lane = 0,
+        .lane = -1,
         .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
-        .focus = UI_FOCUS_SELECTED,
-        .shortName = "L02",
-        .longName = "Loop 02"
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L01",
+        .longName = "Loop 01"
     },
     {
         .id = 4,
-        .type = UI_ITEM_LOOP,
-        .order = 1,
-        .lane = -1,
-        .loopStatus = UI_LOOP_STATUS_ACTIVE_UNCONFIRMED,
+        .type = UI_ITEM_AUTO_NODE,
+        .order = 2,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
-        .shortName = "L03",
-        .longName = "Loop 03"
+        .shortName = "",
+        .longName = ""
     },
     {
         .id = 5,
         .type = UI_ITEM_OUTPUT,
-        .order = 2,
+        .order = 3,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -140,26 +143,33 @@ static UI_Item uiItems[] =
 
 static UI_Connection uiConnections[] =
 {
+    /*
+     * Split after IN1.
+     */
     {
         .sourceId = 1,
-        .targetId = 2
+   *    .targetId = 2
     },
     {
-        .sourceId = 1,
+   *    .sourceId = 1,
         .targetId = 3
     },
+
+    /*
+     * Merge at the automatic node.
+     */
     {
-        .sourceId = 1,
+        .source*d = 2,
+*       .targetId = 4
+    },
+    {
+*       .sourceId*= 3,
         .targetId = 4
     },
-    {
-        .sourceId = 2,
-        .targetId = 5
-    },
-    {
-        .sourceId = 3,
-        .targetId = 5
-    },
+
+    /*
+     * Automatic node to OUT1.
+     */
     {
         .sourceId = 4,
         .targetId = 5
@@ -735,38 +745,95 @@ static void UI_DrawManualNode(
     int16_t x,
     int16_t y)
 {
-    uint16_t color = UI_GetFocusColor(item);
+    int16_t centerX =
+        x + (UI_ELEMENT_WIDTH / 2);
 
-    int16_t centerX = x + (UI_ELEMENT_WIDTH / 2);
-    int16_t centerY = y + (UI_ELEMENT_HEIGHT / 2);
+    int16_t centerY =
+        y + (UI_ELEMENT_HEIGHT / 2);
 
+
+    /*
+     * Separate focus diamond outside the actual node.
+     */
+    if (item->focus == UI_FOCUS_SELECTED ||
+        item->focus == UI_FOCUS_GRABBED)
+    {
+        uint16_t focusColor =
+            UI_GetFocusColor(item);
+
+        int16_t focusRadius =
+            UI_MANUAL_NODE_RADIUS +
+            UI_FOCUS_FRAME_GAP;
+
+
+        ST7735_DrawLine(
+            centerX,
+            centerY - focusRadius,
+            centerX + focusRadius,
+            centerY,
+            focusColor
+        );
+
+        ST7735_DrawLine(
+            centerX + focusRadius,
+            centerY,
+            centerX,
+            centerY + focusRadius,
+            focusColor
+        );
+
+        ST7735_DrawLine(
+            centerX,
+            centerY + focusRadius,
+            centerX - focusRadius,
+            centerY,
+            focusColor
+        );
+
+        ST7735_DrawLine(
+            centerX - focusRadius,
+            centerY,
+            centerX,
+            centerY - focusRadius,
+            focusColor
+        );
+    }
+
+
+    /*
+     * Actual manual node remains white.
+     */
     ST7735_DrawLine(
         centerX,
         centerY - UI_MANUAL_NODE_RADIUS,
         centerX + UI_MANUAL_NODE_RADIUS,
         centerY,
-        color);
+        UI_COLOR_BORDER_NORMAL
+    );
 
     ST7735_DrawLine(
         centerX + UI_MANUAL_NODE_RADIUS,
         centerY,
         centerX,
         centerY + UI_MANUAL_NODE_RADIUS,
-        color);
+        UI_COLOR_BORDER_NORMAL
+    );
 
     ST7735_DrawLine(
         centerX,
         centerY + UI_MANUAL_NODE_RADIUS,
         centerX - UI_MANUAL_NODE_RADIUS,
         centerY,
-        color);
+        UI_COLOR_BORDER_NORMAL
+    );
 
     ST7735_DrawLine(
         centerX - UI_MANUAL_NODE_RADIUS,
         centerY,
         centerX,
         centerY - UI_MANUAL_NODE_RADIUS,
-        color);
+        UI_COLOR_BORDER_NORMAL
+    );
 }
 
 
@@ -774,12 +841,36 @@ static void UI_DrawAutoNode(
     int16_t x,
     int16_t y)
 {
-    UI_FillCircle(
-        x + (UI_ELEMENT_WIDTH / 2),
-        y + (UI_ELEMENT_HEIGHT / 2),
+    int16_t centerX =
+        x + (UI_ELEMENT_WIDTH / 2);
+
+    int16_t centerY =
+        y + (UI_ELEMENT_HEIGHT / 2);
+
+
+    /*
+     * Automatic node:
+     * white circular outline with a center point.
+     *
+     * The larger circle provides separate connection
+     * points for horizontal and diagonal arrows.
+     */
+    UI_DrawCircle(
+        centerX,
+        centerY,
         UI_AUTO_NODE_RADIUS,
-        UI_COLOR_AUTO_NODE);
+        UI_COLOR_AUTO_NODE
+    );
+
+
+    UI_FillCircle(
+        centerX,
+        centerY,
+        1,
+        UI_COLOR_AUTO_NODE
+    );
 }
+
 
 
 static void UI_DrawItem(
@@ -816,6 +907,46 @@ static void UI_DrawItem(
 /* Connection points                                                          */
 /* -------------------------------------------------------------------------- */
 
+static uint8_t UI_IsCircularItem(
+    const UI_Item *item)
+{
+    if (item == NULL)
+    {
+        return 0;
+    }
+
+    return
+        (item->type == UI_ITEM_INPUT ||
+         item->type == UI_ITEM_OUTPUT ||
+         item->type == UI_ITEM_AUTO_NODE);
+}
+
+
+static int16_t UI_GetCircularRadius(
+    const UI_Item *item)
+{
+    if (item != NULL &&
+        item->type == UI_ITEM_AUTO_NODE)
+    {
+        return UI_AUTO_NODE_RADIUS;
+    }
+
+    return UI_IO_CIRCLE_RADIUS;
+}
+
+
+static int16_t UI_GetCircularDiagonalOffset(
+    const UI_Item *item)
+{
+    if (item != NULL &&
+        item->type == UI_ITEM_AUTO_NODE)
+    {
+        return UI_AUTO_NODE_DIAGONAL_OFFSET;
+    }
+
+    return UI_IO_DIAGONAL_OFFSET;
+}
+
 static UI_ConnectionPoint UI_GetSourceConnectionPoint(
     const UI_ItemGeometry *sourceGeometry,
     const UI_Item *sourceItem,
@@ -824,65 +955,128 @@ static UI_ConnectionPoint UI_GetSourceConnectionPoint(
     UI_ConnectionPoint point;
 
     int16_t centerX =
-        sourceGeometry->x + (sourceGeometry->width / 2);
+        sourceGeometry->x +
+        (sourceGeometry->width / 2);
 
     int16_t centerY =
-        sourceGeometry->y + (sourceGeometry->height / 2);
+        sourceGeometry->y +
+        (sourceGeometry->height / 2);
 
+
+    /*
+     * Horizontal connection.
+     */
     if (targetY == centerY)
     {
-        if (sourceItem->type == UI_ITEM_INPUT ||
-            sourceItem->type == UI_ITEM_OUTPUT)
+        if (UI_IsCircularItem(sourceItem))
         {
-            point.x = centerX + UI_IO_CIRCLE_RADIUS;
+            point.x =
+                centerX +
+                UI_GetCircularRadius(sourceItem);
+        }
+        else if (sourceItem->type ==
+                 UI_ITEM_MANUAL_NODE)
+        {
+            point.x =
+                centerX +
+                UI_MANUAL_NODE_RADIUS;
         }
         else
         {
             point.x =
-                sourceGeometry->x + sourceGeometry->width - 1;
+                sourceGeometry->x +
+                sourceGeometry->width -
+                1;
         }
 
         point.y = centerY;
+
         return point;
     }
 
+
+    /*
+     * Connection goes to the upper-right.
+     */
     if (targetY < centerY)
     {
-        if (sourceItem->type == UI_ITEM_INPUT ||
-            sourceItem->type == UI_ITEM_OUTPUT)
+        if (UI_IsCircularItem(sourceItem))
         {
-            point.x = centerX + UI_IO_DIAGONAL_OFFSET;
-            point.y = centerY - UI_IO_DIAGONAL_OFFSET;
+            int16_t offset =
+                UI_GetCircularDiagonalOffset(
+                    sourceItem
+                );
+
+            point.x = centerX + offset;
+            point.y = centerY - offset;
+        }
+        else if (sourceItem->type ==
+                 UI_ITEM_MANUAL_NODE)
+        {
+            point.x =
+                centerX +
+                UI_MANUAL_NODE_DIAGONAL_OFFSET;
+
+            point.y =
+                centerY -
+                UI_MANUAL_NODE_DIAGONAL_OFFSET;
         }
         else
         {
             point.x =
-                sourceGeometry->x + sourceGeometry->width - 1 -
+                sourceGeometry->x +
+                sourceGeometry->width -
+                1 -
                 UI_LOOP_DIAGONAL_INSET;
 
             point.y =
-                sourceGeometry->y + UI_LOOP_DIAGONAL_INSET;
+                sourceGeometry->y +
+                UI_LOOP_DIAGONAL_INSET;
         }
 
         return point;
     }
 
-    if (sourceItem->type == UI_ITEM_INPUT ||
-        sourceItem->type == UI_ITEM_OUTPUT)
+
+    /*
+     * Connection goes to the lower-right.
+     */
+    if (UI_IsCircularItem(sourceItem))
     {
-        point.x = centerX + UI_IO_DIAGONAL_OFFSET;
-        point.y = centerY + UI_IO_DIAGONAL_OFFSET;
+        int16_t offset =
+            UI_GetCircularDiagonalOffset(
+                sourceItem
+            );
+
+        point.x = centerX + offset;
+        point.y = centerY + offset;
+    }
+    else if (sourceItem->type ==
+             UI_ITEM_MANUAL_NODE)
+    {
+        point.x =
+            centerX +
+            UI_MANUAL_NODE_DIAGONAL_OFFSET;
+
+        point.y =
+            centerY +
+            UI_MANUAL_NODE_DIAGONAL_OFFSET;
     }
     else
     {
         point.x =
-            sourceGeometry->x + sourceGeometry->width - 1 -
+            sourceGeometry->x +
+            sourceGeometry->width -
+            1 -
             UI_LOOP_DIAGONAL_INSET;
 
         point.y =
-            sourceGeometry->y + sourceGeometry->height - 1 -
+            sourceGeometry->y +
+            sourceGeometry->height -
+            1 -
             UI_LOOP_DIAGONAL_INSET;
     }
+
 
     return point;
 }
@@ -896,57 +1090,124 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
     UI_ConnectionPoint point;
 
     int16_t centerX =
-        targetGeometry->x + (targetGeometry->width / 2);
+        targetGeometry->x +
+        (targetGeometry->width / 2);
 
     int16_t centerY =
-        targetGeometry->y + (targetGeometry->height / 2);
+        targetGeometry->y +
+        (targetGeometry->height / 2);
 
+
+    /*
+     * Horizontal connection.
+     */
     if (sourceY == centerY)
-    {
-        if (targetItem->type == UI_ITEM_INPUT ||
-            targetItem->type == UI_ITEM_OUTPUT)
+   *{
+        if (UI_IsCircularItem(ta*getItem))
         {
-            point.x = centerX - UI_IO_CIRCLE_RADIUS;
+            po*nt.x =
+                centerX -
+ *              UI_GetCircularRadius*targetItem);
+        }
+        els* if (targetItem->type ==
+         *       UI_ITEM_MANUAL_NODE)
+      * {
+            point.x =
+         *      centerX -
+                UI_MANUAL_NODE_RADIUS;
         }
         else
         {
-            point.x = targetGeometry->x;
+            point.x =
+                targetGeometry->x;
         }
 
         point.y = centerY;
+
         return point;
     }
 
+
+    /*
+     * Source lies below target.
+     * Connection rises to the upper-right.
+     */
     if (sourceY > centerY)
     {
-        if (targetItem->type == UI_ITEM_INPUT ||
-            targetItem->type == UI_ITEM_OUTPUT)
+        if (UI_IsCircularItem(targetItem))
         {
-            point.x = centerX - UI_IO_DIAGONAL_OFFSET;
-            point.y = centerY + UI_IO_DIAGONAL_OFFSET;
+            int16_t offset =
+                UI_GetCircularDiagonalOffset(
+                    targetItem
+                );
+
+            point.x = centerX - offset;
+            point.y = centerY + offset;
+        }
+        else if (targetItem->type ==
+                 UI_ITEM_MANUAL_NODE)
+        {
+            point.x =
+                centerX -
+                UI_MANUAL_NODE_DIAGONAL_OFFSET;
+
+            point.y =
+                centerY +
+                UI_MANUAL_NODE_DIAGONAL_OFFSET;
         }
         else
         {
-            point.x = targetGeometry->x + UI_LOOP_DIAGONAL_INSET;
+            point.x =
+                targetGeometry->x +
+                UI_LOOP_DIAGONAL_INSET;
+
             point.y =
-                targetGeometry->y + targetGeometry->height - 1 -
+                targetGeometry->y +
+                targetGeometry->height -
+                1 -
                 UI_LOOP_DIAGONAL_INSET;
         }
 
         return point;
     }
 
-    if (targetItem->type == UI_ITEM_INPUT ||
-        targetItem->type == UI_ITEM_OUTPUT)
+
+    /*
+     * Source lies above target.
+     * Connection falls to the lower-right.
+     */
+    if (UI_IsCircularItem(targetItem))
     {
-        point.x = centerX - UI_IO_DIAGONAL_OFFSET;
-        point.y = centerY - UI_IO_DIAGONAL_OFFSET;
+        int16_t offset =
+            UI_GetCircularDiagonalOffset(
+                targetItem
+            );
+
+        point.x = centerX - offset;
+        point.y = centerY - offset;
+    }
+    else if (targetItem->type ==
+             UI_ITEM_MANUAL_NODE)
+    {
+        point.x =
+            centerX -
+            UI_MANUAL_NODE_DIAGONAL_OFFSET;
+
+        point.y =
+            centerY -
+            UI_MANUAL_NODE_DIAGONAL_OFFSET;
     }
     else
     {
-        point.x = targetGeometry->x + UI_LOOP_DIAGONAL_INSET;
-        point.y = targetGeometry->y + UI_LOOP_DIAGONAL_INSET;
+        point.x =
+            targetGeometry->x +
+            UI_LOOP_DIAGONAL_INSET;
+
+        point.y =
+            targetGeometry->y +
+            UI_LOOP_DIAGONAL_INSET;
     }
+
 
     return point;
 }
