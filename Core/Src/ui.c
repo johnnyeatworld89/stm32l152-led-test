@@ -1097,19 +1097,19 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
      * Horizontal connection.
      */
     if (sourceY == centerY)
-    {
-        if (UI_IsCircularItem(targetItem))
+   *{
+        if (UI_IsCircularItem(ta*getItem))
         {
-            point.x =
+            po*nt.x =
                 centerX -
-                UI_GetCircularRadius(targetItem);
+ *              UI_GetCircularRadius*targetItem);
         }
-        else if (targetItem->type ==
-                 UI_ITEM_MANUAL_NODE)
-        {
+        els* if (targetItem->type ==
+         *       UI_ITEM_MANUAL_NODE)
+      * {
             point.x =
-                centerX -
-                UI_MANUAL_NODE_RADIUS;
+         *      centerX -
+                UI*MANUAL_NODE_RADIUS;
         }
         else
         {
@@ -1216,92 +1216,6 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
 
     return point;
 }
-
-
-    /*
-     * Source lies below target.
-     * Connection rises to the upper-right.
-     */
-    if (sourceY > centerY)
-    {
-        if (UI_IsCircularItem(targetItem))
-        {
-            int16_t offset =
-                UI_GetCircularDiagonalOffset(
-                    targetItem
-                );
-
-            point.x = centerX - offset;
-            point.y = centerY + offset;
-        }
-        else if (targetItem->type ==
-                 UI_ITEM_MANUAL_NODE)
-        {
-            point.x =
-                centerX -
-                UI_MANUAL_NODE_DIAGONAL_OFFSET;
-
-            point.y =
-                centerY +
-                UI_MANUAL_NODE_DIAGONAL_OFFSET;
-        }
-        else
-        {
-            point.x =
-                targetGeometry->x +
-                UI_LOOP_DIAGONAL_INSET;
-
-            point.y =
-                targetGeometry->y +
-                targetGeometry->height -
-                1 -
-                UI_LOOP_DIAGONAL_INSET;
-        }
-
-        return point;
-    }
-
-
-    /*
-     * Source lies above target.
-     * Connection falls to the lower-right.
-     */
-    if (UI_IsCircularItem(targetItem))
-    {
-        int16_t offset =
-            UI_GetCircularDiagonalOffset(
-                targetItem
-            );
-
-        point.x = centerX - offset;
-        point.y = centerY - offset;
-    }
-    else if (targetItem->type ==
-             UI_ITEM_MANUAL_NODE)
-    {
-        point.x =
-            centerX -
-            UI_MANUAL_NODE_DIAGONAL_OFFSET;
-
-        point.y =
-            centerY -
-            UI_MANUAL_NODE_DIAGONAL_OFFSET;
-    }
-    else
-    {
-        point.x =
-            targetGeometry->x +
-            UI_LOOP_DIAGONAL_INSET;
-
-        point.y =
-            targetGeometry->y +
-            UI_LOOP_DIAGONAL_INSET;
-    }
-
-
-    return point;
-}
-
 
 /* -------------------------------------------------------------------------- */
 /* Connections                                                                */
