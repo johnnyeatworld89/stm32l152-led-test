@@ -57,6 +57,7 @@
 #define UI_FOOTER_HEIGHT             \
     (UI_DISPLAY_HEIGHT - UI_FOOTER_TOP)
 
+#define UI_LOOP_CORNER_RADIUS        2
 #define UI_IO_CIRCLE_RADIUS          7
 #define UI_MANUAL_NODE_RADIUS        6
 #define UI_AUTO_NODE_RADIUS          3
@@ -238,6 +239,219 @@ static void UI_FillCircle(
             }
         }
     }
+}
+
+static void UI_FillRoundedRect(
+    int16_t x,
+    int16_t y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t radius,
+    uint16_t color)
+{
+    if (width == 0 || height == 0)
+    {
+        return;
+    }
+
+    if (radius == 0)
+    {
+        ST7735_FillRect(
+            (uint16_t)x,
+            (uint16_t)y,
+            width,
+            height,
+            color
+        );
+
+        return;
+    }
+
+    /*
+     * Schutz gegen einen zu großen Radius.
+     */
+    if ((radius * 2) >= width)
+    {
+        radius = (width - 1) / 2;
+    }
+
+    if ((radius * 2) >= height)
+    {
+        radius = (height - 1) / 2;
+    }
+
+    /*
+     * Mittleres Rechteck über die gesamte Höhe.
+     */
+    ST7735_FillRect(
+        (uint16_t)(x + radius),
+        (uint16_t)y,
+        width - (2 * radius),
+        height,
+        color
+    );
+
+    /*
+     * Linker und rechter Bereich ohne die Eckpixel.
+     */
+    ST7735_FillRect(
+        (uint16_t)x,
+        (uint16_t)(y + radius),
+        radius,
+        height - (2 * radius),
+        color
+    );
+
+    ST7735_FillRect(
+        (uint16_t)(x + width - radius),
+        (uint16_t)(y + radius),
+        radius,
+        height - (2 * radius),
+        color
+    );
+
+    /*
+     * Bei Radius 2 werden die Rundungen pixelgenau ergänzt.
+     *
+     * Sichtbare Eckkontur:
+     *
+     *   XX
+     *  XXX
+     */
+    for (uint16_t offsetY = 0;
+         offsetY < radius;
+         offsetY++)
+    {
+        uint16_t inset =
+            radius - offsetY - 1;
+
+        uint16_t lineWidth =
+            width - (2 * inset);
+
+        /*
+         * Obere Rundung.
+         */
+        ST7735_FillRect(
+            (uint16_t)(x + inset),
+            (uint16_t)(y + offsetY),
+            lineWidth,
+            1,
+            color
+        );
+
+        /*
+         * Untere Rundung.
+         */
+        ST7735_FillRect(
+            (uint16_t)(x + inset),
+            (uint16_t)(y + height - 1 - offsetY),
+            lineWidth,
+            1,
+            color
+        );
+    }
+}
+
+static void UI_DrawRoundedRect(
+    int16_t x,
+    int16_t y,
+    uint16_t width,
+    uint16_t height,
+    uint16_t radius,
+    uint16_t color)
+{
+    if (width == 0 || height == 0)
+    {
+        return;
+    }
+
+    if (radius == 0)
+    {
+        ST7735_DrawRect(
+            (uint16_t)x,
+            (uint16_t)y,
+            width,
+            height,
+            color
+        );
+
+        return;
+    }
+
+    if ((radius * 2) >= width)
+    {
+        radius = (width - 1) / 2;
+    }
+
+    if ((radius * 2) >= height)
+    {
+        radius = (height - 1) / 2;
+    }
+
+    /*
+     * Obere und untere horizontale Kante.
+     */
+    ST7735_DrawLine(
+        x + radius,
+        y,
+        x + width - radius - 1,
+        y,
+        color
+    );
+
+    ST7735_DrawLine(
+        x + radius,
+        y + height - 1,
+        x + width - radius - 1,
+        y + height - 1,
+        color
+    );
+
+    /*
+     * Linke und rechte vertikale Kante.
+     */
+    ST7735_DrawLine(
+        x,
+        y + radius,
+        x,
+        y + height - radius - 1,
+        color
+    );
+
+    ST7735_DrawLine(
+        x + width - 1,
+        y + radius,
+        x + width - 1,
+        y + height - radius - 1,
+        color
+    );
+
+    /*
+     * Vier kleine diagonale Ecksegmente.
+     */
+    ST7735_DrawPixel(
+        x + 1,
+        y + 1,
+        color
+    );
+
+    ST7735_DrawPixel(
+        x + width - 2,
+        y + 1,
+        color
+    );
+
+    ST7735_DrawPixel(
+        x + 1,
+        y + height - 2,
+        color
+    );
+
+    ST7735_DrawPixel(
+        x + width - 2,
+        y + height - 2,
+        color
+    );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -430,30 +644,35 @@ static void UI_DrawLoop(
     uint16_t borderColor = UI_GetBorderColor(item);
     uint16_t textColor = UI_GetTextColor(item);
 
-    ST7735_FillRect(
-        (uint16_t)x,
-        (uint16_t)y,
+    UI_FillRoundedRect(
+        x,
+        y,
         UI_ELEMENT_WIDTH,
         UI_ELEMENT_HEIGHT,
-        fillColor);
+        UI_LOOP_CORNER_RADIUS,
+        fillColor
+        );
 
-    ST7735_DrawRect(
-        (uint16_t)x,
-        (uint16_t)y,
+    UI_DrawRoundedRect(
+        x,
+        y,
         UI_ELEMENT_WIDTH,
         UI_ELEMENT_HEIGHT,
-        borderColor);
+        UI_LOOP_CORNER_RADIUS,
+        borderColor
+        );
 
     if (item->focus == UI_FOCUS_SELECTED ||
         item->focus == UI_FOCUS_GRABBED)
     {
-        ST7735_DrawRect(
-            (uint16_t)(x + 1),
-            (uint16_t)(y + 1),
+       UI_DrawRoundedRect(
+            x + 1,
+            y + 1,
             UI_ELEMENT_WIDTH - 2,
             UI_ELEMENT_HEIGHT - 2,
-            borderColor);
-    }
+            UI_LOOP_CORNER_RADIUS,
+            borderColor
+            );
 
     UI_DrawCenteredText(
         (uint16_t)x,
@@ -491,14 +710,45 @@ static void UI_DrawIO(
         borderColor);
 
     UI_DrawCenteredText(
-        (uint16_t)x,
-        (uint16_t)(centerY + UI_IO_CIRCLE_RADIUS + 3),
-        UI_ELEMENT_WIDTH,
-        7,
+        uint16_t textWidth =
+    Font5x7_GetStringWidth(
         item->shortName,
-        UI_COLOR_TEXT_LIGHT,
-        UI_COLOR_BACKGROUND,
-        1);
+        1
+            );
+        
+        int16_t textX =
+            centerX -
+            ((int16_t)textWidth / 2);
+        
+        if (textX < x)
+        {
+            textX = x;
+        }
+        
+        if ((textX + textWidth) >
+            (x + UI_ELEMENT_WIDTH))
+        {
+            textX =
+                x +
+                UI_ELEMENT_WIDTH -
+                textWidth;
+        }
+        
+        uint16_t textY =
+            (uint16_t)(
+                centerY +
+                UI_IO_CIRCLE_RADIUS +
+                3
+            );
+        
+        Font5x7_DrawString(
+            (uint16_t)textX,
+            textY,
+            item->shortName,
+            UI_COLOR_TEXT_LIGHT,
+            UI_COLOR_BACKGROUND,
+            1
+        );
 }
 
 static void UI_DrawManualNode(
