@@ -57,7 +57,9 @@
 #define UI_FOOTER_HEIGHT             \
     (UI_DISPLAY_HEIGHT - UI_FOOTER_TOP)
 
-#define UI_LOOP_CORNER_RADIUS        3
+#define UI_LOOP_CORNER_RADIUS        2
+#define UI_FOCUS_FRAME_GAP          2
+#define UI_FOCUS_CORNER_RADIUS      3
 #define UI_IO_CIRCLE_RADIUS          7
 #define UI_MANUAL_NODE_RADIUS        6
 #define UI_AUTO_NODE_RADIUS          3
@@ -500,6 +502,28 @@ static uint16_t UI_GetBorderColor(const UI_Item *item)
     }
 }
 
+static uint16_t UI_GetFocusColor(
+    const UI_Item *item)
+{
+    if (item == NULL)
+    {
+        return UI_COLOR_BORDER_NORMAL;
+    }
+
+    switch (item->focus)
+    {
+        case UI_FOCUS_SELECTED:
+            return UI_COLOR_BORDER_SELECTED;
+
+        case UI_FOCUS_GRABBED:
+            return UI_COLOR_BORDER_GRABBED;
+
+        case UI_FOCUS_NONE:
+        default:
+            return UI_COLOR_BORDER_NORMAL;
+    }
+}
+
 static uint16_t UI_GetTextColor(const UI_Item *item)
 {
     if (item != NULL &&
@@ -643,16 +667,45 @@ static void UI_DrawLoop(
     uint16_t fillColor =
         UI_GetFillColor(item);
 
-    uint16_t borderColor =
-        UI_GetBorderColor(item);
-
     uint16_t textColor =
         UI_GetTextColor(item);
 
+    /*
+     * Der eigentliche Looprahmen bleibt immer weiß.
+     * Auswahl und Greifzustand werden über einen
+     * separaten äußeren Rahmen angezeigt.
+     */
+    uint16_t loopBorderColor =
+        UI_COLOR_BORDER_NORMAL;
+
+    uint16_t focusColor =
+        UI_GetFocusColor(item);
+
 
     /*
-     * Gefüllter Loop-Kasten mit leicht
-     * abgerundeten Ecken.
+     * Vergrößerten Fokusrahmen zuerst zeichnen.
+     *
+     * Zwischen Fokusrahmen und Looprahmen bleibt
+     * ein schwarzer Abstand.
+     */
+    if (item->focus == UI_FOCUS_SELECTED ||
+        item->focus == UI_FOCUS_GRABBED)
+    {
+        UI_DrawRoundedRect(
+            x - UI_FOCUS_FRAME_GAP,
+            y - UI_FOCUS_FRAME_GAP,
+            UI_ELEMENT_WIDTH +
+                (2 * UI_FOCUS_FRAME_GAP),
+            UI_ELEMENT_HEIGHT +
+                (2 * UI_FOCUS_FRAME_GAP),
+            UI_FOCUS_CORNER_RADIUS,
+            focusColor
+        );
+    }
+
+
+    /*
+     * Loopfläche mit leicht abgerundeten Ecken.
      */
     UI_FillRoundedRect(
         x,
@@ -665,7 +718,7 @@ static void UI_DrawLoop(
 
 
     /*
-     * Äußerer Rahmen.
+     * Weißer eigentlicher Looprahmen.
      */
     UI_DrawRoundedRect(
         x,
@@ -673,31 +726,12 @@ static void UI_DrawLoop(
         UI_ELEMENT_WIDTH,
         UI_ELEMENT_HEIGHT,
         UI_LOOP_CORNER_RADIUS,
-        borderColor
+        loopBorderColor
     );
 
 
     /*
-     * Ausgewählte und gegriffene Loops
-     * erhalten einen zweiten Rahmen.
-     */
-    if (item->focus == UI_FOCUS_SELECTED ||
-        item->focus == UI_FOCUS_GRABBED)
-    {
-        UI_DrawRoundedRect(
-            x + 1,
-            y + 1,
-            UI_ELEMENT_WIDTH - 2,
-            UI_ELEMENT_HEIGHT - 2,
-            UI_LOOP_CORNER_RADIUS,
-            borderColor
-        );
-    }
-
-
-    /*
-     * Im Loop-Kasten wird immer nur
-     * der Kurzname angezeigt.
+     * Im Kasten bleibt immer der Kurzname.
      */
     UI_DrawCenteredText(
         (uint16_t)x,
