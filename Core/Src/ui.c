@@ -1097,18 +1097,18 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
      * Horizontal connection.
      */
     if (sourceY == centerY)
-   *{
+   {
         if (UI_IsCircularItem(ta*getItem))
         {
             po*nt.x =
                 centerX -
- *              UI_GetCircularRadius*targetItem);
+               UI_GetCircularRadius*targetItem);
         }
-        els* if (targetItem->type ==
-         *       UI_ITEM_MANUAL_NODE)
-      * {
+        els if (targetItem->type ==
+                UI_ITEM_MANUAL_NODE)
+       {
             point.x =
-         *      centerX -
+              centerX -
                 UI*MANUAL_NODE_RADIUS;
         }
         else
