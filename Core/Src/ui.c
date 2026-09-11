@@ -949,6 +949,115 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
 /* Connections                                                                */
 /* -------------------------------------------------------------------------- */
 
+static void UI_DrawConnectionLine(
+    int16_t x0,
+    int16_t y0,
+    int16_t x1,
+    int16_t y1,
+    uint16_t color)
+{
+    int16_t dx =
+        x1 - x0;
+
+    int16_t dy =
+        y1 - y0;
+
+    int16_t absDx =
+        (dx >= 0) ? dx : -dx;
+
+    int16_t absDy =
+        (dy >= 0) ? dy : -dy;
+
+    int16_t steps =
+        (absDx > absDy) ? absDx : absDy;
+
+
+    if (steps == 0)
+    {
+        ST7735_DrawPixel(
+            x0,
+            y0,
+            color
+        );
+
+        return;
+    }
+
+
+    int32_t currentX =
+        ((int32_t)x0 << 8);
+
+    int32_t currentY =
+        ((int32_t)y0 << 8);
+
+    int32_t stepX =
+        ((int32_t)dx << 8) /
+        steps;
+
+    int32_t stepY =
+        ((int32_t)dy << 8) /
+        steps;
+
+
+    int16_t previousX = x0;
+    int16_t previousY = y0;
+
+
+    ST7735_DrawPixel(
+        previousX,
+        previousY,
+        color
+    );
+
+
+    for (int16_t step = 1;
+         step <= steps;
+         step++)
+    {
+        currentX += stepX;
+        currentY += stepY;
+
+        int16_t pixelX =
+            (int16_t)(
+                (currentX + 128) >> 8
+            );
+
+        int16_t pixelY =
+            (int16_t)(
+                (currentY + 128) >> 8
+            );
+
+
+        /*
+         * Wenn sich X und Y gleichzeitig ändern,
+         * wird ein Verbindungspixel ergänzt.
+         *
+         * Dadurch entstehen keine sichtbaren
+         * Ein-Pixel-Versätze in der Diagonale.
+         */
+        if (pixelX != previousX &&
+            pixelY != previousY)
+        {
+            ST7735_DrawPixel(
+                pixelX,
+                previousY,
+                color
+            );
+        }
+
+
+        ST7735_DrawPixel(
+            pixelX,
+            pixelY,
+            color
+        );
+
+
+        previousX = pixelX;
+        previousY = pixelY;
+    }
+}
+
 static void UI_DrawDirectConnection(
     int16_t startX,
     int16_t startY,
@@ -1017,12 +1126,13 @@ static void UI_DrawDirectConnection(
      * Draw through to the tip. The filled triangle is placed over the final
      * portion of the shaft. This avoids a visible seam at the arrowhead.
      */
-    ST7735_DrawLine(
+    UI_DrawConnectionLine(
         startX,
         startY,
         tipX,
         tipY,
-        UI_COLOR_CONNECTION);
+        UI_COLOR_CONNECTION
+    );
 
     UI_FillTriangle(
         tipX,
