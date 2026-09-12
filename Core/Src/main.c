@@ -110,13 +110,13 @@ int main(void)
     /* Main loop                                                              */
     /* ---------------------------------------------------------------------- */
 
-    while (1)
+   /*e while (1)
     {
         /*
          * Main application code will be added here later.
          *
          * For now the UI remains static.
-         */
+         *
 
          LED_SetColor(0, 240, 0, 0);
          LED_SetColor(1, 0, 0, 0);
@@ -162,6 +162,15 @@ int main(void)
 
     }
 }
+*/
+while (1)
+{
+    HAL_Delay(1000);
+
+    UI_SelectNext();
+    UI_Draw();
+}
+
 
 
 /* -------------------------------------------------------------------------- */
