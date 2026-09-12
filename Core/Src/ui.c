@@ -444,6 +444,177 @@ static int16_t UI_FindItemIndexById(uint16_t itemId)
     return -1;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Selection                                                                  */
+/* -------------------------------------------------------------------------- */
+
+static uint8_t UI_IsSelectable(
+    const UI_Item *item)
+{
+    if (item == NULL)
+    {
+        return 0;
+    }
+
+    switch (item->type)
+    {
+        case UI_ITEM_INPUT:
+        case UI_ITEM_OUTPUT:
+        case UI_ITEM_LOOP:
+        case UI_ITEM_MANUAL_NODE:
+            return 1;
+
+        case UI_ITEM_AUTO_NODE:
+        default:
+            return 0;
+    }
+}
+
+
+static int16_t UI_GetSelectedIndex(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].focus == UI_FOCUS_SELECTED)
+        {
+            return (int16_t)i;
+        }
+    }
+
+    return -1;
+}
+
+
+static void UI_SetSelectedIndex(
+    int16_t newIndex)
+{
+    if (newIndex < 0 ||
+        newIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return;
+    }
+
+    if (!UI_IsSelectable(&uiItems[newIndex]))
+    {
+        return;
+    }
+
+    /*
+     * Bestehenden Auswahl- oder Greifzustand löschen.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].focus == UI_FOCUS_SELECTED ||
+            uiItems[i].focus == UI_FOCUS_GRABBED)
+        {
+            uiItems[i].focus = UI_FOCUS_NONE;
+        }
+    }
+
+    uiItems[newIndex].focus =
+        UI_FOCUS_SELECTED;
+}
+
+
+void UI_SelectNext(void)
+{
+    int16_t currentIndex =
+        UI_GetSelectedIndex();
+
+    /*
+     * Falls noch nichts ausgewählt ist, wird das
+     * erste auswählbare Element verwendet.
+     */
+    if (currentIndex < 0)
+    {
+        for (uint16_t i = 0;
+             i < UI_ITEM_COUNT;
+             i++)
+        {
+            if (UI_IsSelectable(&uiItems[i]))
+            {
+                UI_SetSelectedIndex((int16_t)i);
+                return;
+            }
+        }
+
+        return;
+    }
+
+    int16_t candidateIndex =
+        currentIndex;
+
+    do
+    {
+        candidateIndex++;
+
+        if (candidateIndex >=
+            (int16_t)UI_ITEM_COUNT)
+        {
+            candidateIndex = 0;
+        }
+
+        if (UI_IsSelectable(
+                &uiItems[candidateIndex]))
+        {
+            UI_SetSelectedIndex(candidateIndex);
+            return;
+        }
+
+    } while (candidateIndex != currentIndex);
+}
+
+
+void UI_SelectPrevious(void)
+{
+    int16_t currentIndex =
+        UI_GetSelectedIndex();
+
+    if (currentIndex < 0)
+    {
+        for (int16_t i =
+                 (int16_t)UI_ITEM_COUNT - 1;
+             i >= 0;
+             i--)
+        {
+            if (UI_IsSelectable(&uiItems[i]))
+            {
+                UI_SetSelectedIndex(i);
+                return;
+            }
+        }
+
+        return;
+    }
+
+    int16_t candidateIndex =
+        currentIndex;
+
+    do
+    {
+        candidateIndex--;
+
+        if (candidateIndex < 0)
+        {
+            candidateIndex =
+                (int16_t)UI_ITEM_COUNT - 1;
+        }
+
+        if (UI_IsSelectable(
+                &uiItems[candidateIndex]))
+        {
+            UI_SetSelectedIndex(candidateIndex);
+            return;
+        }
+
+    } while (candidateIndex != currentIndex);
+}
+
+
 static void UI_DrawLoop(const UI_Item *item, int16_t x, int16_t y)
 {
     uint16_t fillColor = UI_GetFillColor(item);
