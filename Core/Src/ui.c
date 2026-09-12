@@ -56,6 +56,7 @@ static UI_Item uiItems[] =
         .shortName = "In1",
         .longName = "Input 1"
     },
+
     {
         .id = 2,
         .type = UI_ITEM_MANUAL_NODE,
@@ -66,16 +67,18 @@ static UI_Item uiItems[] =
         .shortName = "N01",
         .longName = "Node 01"
     },
+
     {
         .id = 3,
         .type = UI_ITEM_LOOP,
         .order = 1,
-        .lane = -1,
+        .lane = 0,
         .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
         .focus = UI_FOCUS_NONE,
         .shortName = "L01",
         .longName = "Loop 01"
     },
+
     {
         .id = 4,
         .type = UI_ITEM_AUTO_NODE,
@@ -86,6 +89,7 @@ static UI_Item uiItems[] =
         .shortName = "",
         .longName = ""
     },
+
     {
         .id = 5,
         .type = UI_ITEM_OUTPUT,
@@ -98,16 +102,49 @@ static UI_Item uiItems[] =
     }
 };
 
+
 #define UI_ITEM_COUNT (sizeof(uiItems) / sizeof(uiItems[0]))
 
 static UI_Connection uiConnections[] =
 {
-    { .sourceId = 1, .targetId = 2 },
-    { .sourceId = 1, .targetId = 3 },
-    { .sourceId = 2, .targetId = 4 },
-    { .sourceId = 3, .targetId = 4 },
-    { .sourceId = 4, .targetId = 5 }
+    /*
+     * IN1 supplies the manual node and L01.
+     */
+    {
+        .sourceId = 1,
+        .targetId = 2
+    },
+
+    {
+        .sourceId = 1,
+        .targetId = 3
+    },
+
+
+    /*
+     * One diagonal and one horizontal arrow
+     * enter the automatic node.
+     */
+    {
+        .sourceId = 2,
+        .targetId = 4
+    },
+
+    {
+        .sourceId = 3,
+        .targetId = 4
+    },
+
+
+    /*
+     * Horizontal output from automatic node.
+     */
+    {
+        .sourceId = 4,
+        .targetId = 5
+    }
 };
+
 
 #define UI_CONNECTION_COUNT \
     (sizeof(uiConnections) / sizeof(uiConnections[0]))
@@ -497,15 +534,32 @@ static void UI_DrawManualNode(const UI_Item *item,
                     centerX, centerY - r, UI_COLOR_BORDER_NORMAL);
 }
 
-static void UI_DrawAutoNode(int16_t x, int16_t y)
+static void UI_DrawAutoNode(
+    int16_t x,
+    int16_t y)
 {
-    int16_t centerX = x + (UI_ELEMENT_WIDTH / 2);
-    int16_t centerY = y + (UI_ELEMENT_HEIGHT / 2);
+    int16_t centerX =
+        x + (UI_ELEMENT_WIDTH / 2);
 
-    UI_DrawCircle(centerX, centerY,
-                  UI_AUTO_NODE_RADIUS, UI_COLOR_BORDER_NORMAL);
-    UI_FillCircle(centerX, centerY, 1, UI_COLOR_BORDER_NORMAL);
+    int16_t centerY =
+        y + (UI_ELEMENT_HEIGHT / 2);
+
+
+    /*
+     * Automatic nodes are displayed as completely
+     * filled white circles.
+     *
+     * The radius is large enough to provide separate
+     * horizontal and diagonal connection points.
+     */
+    UI_FillCircle(
+        centerX,
+        centerY,
+        UI_AUTO_NODE_RADIUS,
+        UI_COLOR_BORDER_NORMAL
+    );
 }
+
 
 static void UI_DrawItem(const UI_Item *item, int16_t x, int16_t y)
 {
