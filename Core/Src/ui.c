@@ -151,6 +151,22 @@ static UI_Connection uiConnections[] =
 
 static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 
+/* -------------------------------------------------------------------------- */
+/* Internal function prototypes                                               */
+/* -------------------------------------------------------------------------- */
+
+static void UI_DrawConnections(void);
+
+static void UI_DrawItem(
+    const UI_Item *item,
+    int16_t x,
+    int16_t y
+);
+
+static void UI_DrawFooter(void);
+
+
+
 typedef struct
 {
     int16_t x;
@@ -445,6 +461,186 @@ static int16_t UI_FindItemIndexById(uint16_t itemId)
 }
 
 /* -------------------------------------------------------------------------- */
+/* Clear one item area                                                        */
+/* -------------------------------------------------------------------------- */
+
+static void UI_ClearItemArea(int16_t itemIndex)
+{
+    if (itemIndex < 0 ||
+        itemIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return;
+    }
+
+
+    if (!uiGeometry[itemIndex].visible)
+    {
+        return;
+    }
+
+
+    const UI_ItemGeometry *geometry =
+        &uiGeometry[itemIndex];
+
+
+    /*
+     * Der Löschbereich ist etwas größer als die
+     * eigentliche Rasterzelle.
+     *
+     * Dadurch wird auch ein äußerer blauer oder
+     * pinker Fokusrahmen vollständig entfernt.
+     */
+    int16_t clearX =
+        geometry->x -
+        UI_FOCUS_FRAME_GAP -
+        1;
+
+    int16_t clearY =
+        geometry->y -
+        UI_FOCUS_FRAME_GAP -
+        1;
+
+    int16_t clearWidth =
+        geometry->width +
+        (2 * UI_FOCUS_FRAME_GAP) +
+        2;
+
+    int16_t clearHeight =
+        geometry->height +
+        (2 * UI_FOCUS_FRAME_GAP) +
+        2;
+
+
+    /*
+     * Auf sichtbaren Displaybereich begrenzen.
+     */
+    if (clearX < 0)
+    {
+        clearWidth += clearX;
+        clearX = 0;
+    }
+
+    if (clearY < 0)
+    {
+        clearHeight += clearY;
+        clearY = 0;
+    }
+
+    if ((clearX + clearWidth) >
+        UI_DISPLAY_WIDTH)
+    {
+        clearWidth =
+            UI_DISPLAY_WIDTH -
+            clearX;
+    }
+
+    /*
+     * Nicht in den Footer hinein löschen.
+     */
+    if ((clearY + clearHeight) >
+        UI_FOOTER_TOP)
+    {
+        clearHeight =
+            UI_FOOTER_TOP -
+            clearY;
+    }
+
+
+    if (clearWidth <= 0 ||
+        clearHeight <= 0)
+    {
+        return;
+    }
+
+
+    ST7735_FillRect(
+        (uint16_t)clearX,
+        (uint16_t)clearY,
+        (uint16_t)clearWidth,
+        (uint16_t)clearHeight,
+        UI_COLOR_BACKGROUND
+    );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Redraw one item                                                            */
+/* -------------------------------------------------------------------------- */
+
+static void UI_RedrawItem(int16_t itemIndex)
+{
+    if (itemIndex < 0 ||
+        itemIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return;
+    }
+
+
+    if (!uiGeometry[itemIndex].visible)
+    {
+        return;
+    }
+
+
+    UI_DrawItem(
+        &uiItems[itemIndex],
+        uiGeometry[itemIndex].x,
+        uiGeometry[itemIndex].y
+    );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Partial selection update                                                   */
+/* -------------------------------------------------------------------------- */
+
+static void UI_UpdateSelectionDisplay(
+    int16_t oldIndex,
+    int16_t newIndex)
+{
+    /*
+     * Alten und neuen Elementbereich löschen.
+     *
+     * Der alte Fokusrahmen muss entfernt werden.
+     * Der neue Bereich wird gelöscht, damit keine
+     * vorherigen Konturen zurückbleiben.
+     */
+    UI_ClearItemArea(oldIndex);
+
+    if (newIndex != oldIndex)
+    {
+        UI_ClearItemArea(newIndex);
+    }
+
+
+    /*
+     * Das Löschen der Itembereiche kann Endstücke
+     * angrenzender Verbindungen entfernen.
+     *
+     * Verbindungen sind wesentlich schneller neu
+     * zu zeichnen als der komplette Bildschirm.
+     */
+    UI_DrawConnections();
+
+
+    /*
+     * Beide betroffenen Items über den Verbindungen
+     * neu zeichnen.
+     */
+    UI_RedrawItem(oldIndex);
+
+    if (newIndex != oldIndex)
+    {
+        UI_RedrawItem(newIndex);
+    }
+
+
+    /*
+     * Nur den Footer aktualisieren.
+     */
+    UI_DrawFooter();
+}
+
+
+/* -------------------------------------------------------------------------- */
 /* Selection                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -496,28 +692,62 @@ static void UI_SetSelectedIndex(
         return;
     }
 
-    if (!UI_IsSelectable(&uiItems[newIndex]))
+
+    if (!UI_IsSelectable(
+            &uiItems[newIndex]))
     {
         return;
     }
 
+
+    int16_t oldIndex =
+        UI_GetSelectedIndex();
+
+
     /*
-     * Bestehenden Auswahl- oder Greifzustand löschen.
+     * Keine Änderung notwendig.
+     */
+    if (oldIndex == newIndex)
+    {
+        return;
+    }
+
+
+    /*
+     * Bestehenden Fokuszustand entfernen.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
          i++)
     {
-        if (uiItems[i].focus == UI_FOCUS_SELECTED ||
-            uiItems[i].focus == UI_FOCUS_GRABBED)
+        if (uiItems[i].focus ==
+                UI_FOCUS_SELECTED ||
+            uiItems[i].focus ==
+                UI_FOCUS_GRABBED)
         {
-            uiItems[i].focus = UI_FOCUS_NONE;
+            uiItems[i].focus =
+                UI_FOCUS_NONE;
         }
     }
 
+
+    /*
+     * Neues Element auswählen.
+     */
     uiItems[newIndex].focus =
         UI_FOCUS_SELECTED;
+
+
+    /*
+     * Nur die geänderten Bildschirmbereiche
+     * aktualisieren.
+     */
+    UI_UpdateSelectionDisplay(
+        oldIndex,
+        newIndex
+    );
 }
+
 
 
 void UI_SelectNext(void)
