@@ -168,7 +168,7 @@ while (1)
     HAL_Delay(1000);
 
     UI_SelectNext();
-    UI_Draw();
+   
 }
 }
 
