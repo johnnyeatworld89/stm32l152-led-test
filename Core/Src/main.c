@@ -29,7 +29,8 @@ static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void Error_Handler(void);
 
-
+static uint8_t encoderState = 0;
+static int8_t encoderAccumulator = 0;
 
 static void Encoder_Update(void)
 {
@@ -104,8 +105,7 @@ static void Encoder_Update(void)
     }
 }
 
-static uint8_t encoderState = 0;
-static int8_t encoderAccumulator = 0;
+
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                       */
