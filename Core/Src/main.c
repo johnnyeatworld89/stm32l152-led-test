@@ -35,8 +35,8 @@ static void Encoder_Update(void)
 {
     uint8_t a =
         HAL_GPIO_ReadPin(
-            GPIOA,
-            GPIO_PIN_4
+            GPIOC,
+            GPIO_PIN_1
         );
 
     uint8_t b =
