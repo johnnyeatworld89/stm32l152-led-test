@@ -28,7 +28,45 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void Error_Handler(void);
+static uint8_t encoderLastState = 0;
 
+
+static void Encoder_Update(void)
+{
+    uint8_t a =
+        HAL_GPIO_ReadPin(
+            GPIOA,
+            GPIO_PIN_4
+        );
+
+    uint8_t b =
+        HAL_GPIO_ReadPin(
+            GPIOA,
+            GPIO_PIN_1
+        );
+
+    uint8_t state =
+        (a << 1) | b;
+
+
+    /*
+     * Rising edge on A.
+     */
+    if ((encoderLastState & 0x02) == 0 &&
+        (state & 0x02) != 0)
+    {
+        if (b)
+        {
+            UI_SelectNext();
+        }
+        else
+        {
+            UI_SelectPrevious();
+        }
+    }
+
+    encoderLastState = state;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                       */
@@ -165,10 +203,9 @@ int main(void)
 */
 while (1)
 {
-    HAL_Delay(1000);
+    Encoder_Update();
 
-    UI_SelectNext();
-   
+    HAL_Delay(1);
 }
 }
 
