@@ -45,32 +45,72 @@ static void Encoder_Update(void)
             GPIO_PIN_1
         );
 
-    uint8_t state =
+    uint8_t currentState =
         (a << 1) | b;
 
 
-    /*
-     * Rising edge on A.
-     */
-    if ((encoderLastState & 0x02) == 0 &&
-        (state & 0x02) != 0)
+    uint8_t transition =
+        (encoderState << 2) |
+        currentState;
+
+
+    switch (transition)
     {
-        if (b)
-        {
-            UI_SelectNext();
-        }
-        else
-        {
-            UI_SelectPrevious();
-        }
+        /*
+         * Clockwise
+         */
+        case 0b0001:
+        case 0b0111:
+        case 0b1110:
+        case 0b1000:
+            encoderAccumulator++;
+            break;
+
+
+        /*
+         * Counter clockwise
+         */
+        case 0b0010:
+        case 0b1011:
+        case 0b1101:
+        case 0b0100:
+            encoderAccumulator--;
+            break;
+
+        default:
+            break;
     }
 
-    encoderLastState = state;
+
+    encoderState = currentState;
+
+
+    /*
+     * Ein mechanischer Rastpunkt entspricht
+     * typischerweise vier Quadraturzuständen.
+     */
+    if (encoderAccumulator >= 4)
+    {
+        encoderAccumulator = 0;
+
+        UI_SelectNext();
+    }
+
+    if (encoderAccumulator <= -4)
+    {
+        encoderAccumulator = 0;
+
+        UI_SelectPrevious();
+    }
 }
+
+static uint8_t encoderState = 0;
+static int8_t encoderAccumulator = 0;
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                       */
 /* -------------------------------------------------------------------------- */
+
 
 int main(void)
 {
@@ -204,8 +244,6 @@ int main(void)
 while (1)
 {
     Encoder_Update();
-
-    HAL_Delay(1);
 }
 }
 
