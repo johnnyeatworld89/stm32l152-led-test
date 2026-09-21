@@ -28,7 +28,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void Error_Handler(void);
-static uint8_t encoderLastState = 0;
+
 
 
 static void Encoder_Update(void)
@@ -188,59 +188,6 @@ int main(void)
     /* Main loop                                                              */
     /* ---------------------------------------------------------------------- */
 
-   /*e while (1)
-    {
-        /*
-         * Main application code will be added here later.
-         *
-         * For now the UI remains static.
-         *
-
-         LED_SetColor(0, 240, 0, 0);
-         LED_SetColor(1, 0, 0, 0);
-         LED_Show();
-     
-         HAL_Delay(800);
-     
-         LED_SetColor(0, 0, 240, 0);
-         LED_SetColor(1, 0, 0, 0);
-         LED_Show();
-     
-         HAL_Delay(800);
-     
-         LED_SetColor(0, 0, 0, 240);
-         LED_SetColor(1, 0, 0, 0);
-         LED_Show();
-     
-         HAL_Delay(800);
-     
-         LED_SetColor(0, 0, 0, 0);
-         LED_SetColor(1, 240, 0, 0);
-         LED_Show();
-     
-         HAL_Delay(800);
-     
-         LED_SetColor(0, 0, 0, 0);
-         LED_SetColor(1, 0, 240, 0);
-         LED_Show();
-     
-         HAL_Delay(800);
-     
-         LED_SetColor(0, 0, 0, 0);
-         LED_SetColor(1, 0, 0, 240);
-         LED_Show();
-     
-         HAL_Delay(800);
-     
-         LED_SetColor(0, 0, 0, 0);
-         LED_SetColor(1, 0, 0, 0);
-         LED_Show();
-     
-         HAL_Delay(800);
-
-    }
-}
-*/
 while (1)
 {
     Encoder_Update();
