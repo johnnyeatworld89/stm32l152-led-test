@@ -809,47 +809,16 @@ void UI_SelectNext(void)
     int16_t currentIndex =
         UI_GetSelectedIndex();
 
-    /*
-     * Falls noch nichts ausgewählt ist, wird das
-     * erste auswählbare Element verwendet.
-     */
-    if (currentIndex < 0)
+    for (int16_t i = currentIndex + 1;
+         i < (int16_t)UI_ITEM_COUNT;
+         i++)
     {
-        for (uint16_t i = 0;
-             i < UI_ITEM_COUNT;
-             i++)
+        if (UI_IsSelectable(&uiItems[i]))
         {
-            if (UI_IsSelectable(&uiItems[i]))
-            {
-                UI_SetSelectedIndex((int16_t)i);
-                return;
-            }
-        }
-
-        return;
-    }
-
-    int16_t candidateIndex =
-        currentIndex;
-
-    do
-    {
-        candidateIndex++;
-
-        if (candidateIndex >=
-            (int16_t)UI_ITEM_COUNT)
-        {
-            candidateIndex = 0;
-        }
-
-        if (UI_IsSelectable(
-                &uiItems[candidateIndex]))
-        {
-            UI_SetSelectedIndex(candidateIndex);
+            UI_SetSelectedIndex(i);
             return;
         }
-
-    } while (candidateIndex != currentIndex);
+    }
 }
 
 
@@ -858,44 +827,16 @@ void UI_SelectPrevious(void)
     int16_t currentIndex =
         UI_GetSelectedIndex();
 
-    if (currentIndex < 0)
+    for (int16_t i = currentIndex - 1;
+         i >= 0;
+         i--)
     {
-        for (int16_t i =
-                 (int16_t)UI_ITEM_COUNT - 1;
-             i >= 0;
-             i--)
+        if (UI_IsSelectable(&uiItems[i]))
         {
-            if (UI_IsSelectable(&uiItems[i]))
-            {
-                UI_SetSelectedIndex(i);
-                return;
-            }
-        }
-
-        return;
-    }
-
-    int16_t candidateIndex =
-        currentIndex;
-
-    do
-    {
-        candidateIndex--;
-
-        if (candidateIndex < 0)
-        {
-            candidateIndex =
-                (int16_t)UI_ITEM_COUNT - 1;
-        }
-
-        if (UI_IsSelectable(
-                &uiItems[candidateIndex]))
-        {
-            UI_SetSelectedIndex(candidateIndex);
+            UI_SetSelectedIndex(i);
             return;
         }
-
-    } while (candidateIndex != currentIndex);
+    }
 }
 
 
