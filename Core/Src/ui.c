@@ -157,6 +157,10 @@ static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 
 static void UI_DrawConnections(void);
 
+static void UI_DrawConnectionsForItem(
+    int16_t itemIndex
+);
+
 static void UI_DrawItem(
     const UI_Item *item,
     int16_t x,
@@ -365,13 +369,23 @@ static uint16_t UI_GetFocusColor(const UI_Item *item)
     }
 }
 
-static uint16_t UI_GetTextColor(const UI_Item *item)
+static uint16_t UI_GetTextColor(
+    const UI_Item *item)
 {
-    if (item != NULL &&
-        item->type == UI_ITEM_LOOP &&
-        item->loopStatus == UI_LOOP_STATUS_ACTIVE_UNCONFIRMED)
+    if (item == NULL)
     {
-        return UI_COLOR_TEXT_DARK;
+        return UI_COLOR_TEXT_LIGHT;
+    }
+
+    if (item->type == UI_ITEM_LOOP)
+    {
+        if (item->loopStatus ==
+                UI_LOOP_STATUS_ACTIVE_CONFIRMED ||
+            item->loopStatus ==
+                UI_LOOP_STATUS_ACTIVE_UNCONFIRMED)
+        {
+            return UI_COLOR_TEXT_DARK;
+        }
     }
 
     return UI_COLOR_TEXT_LIGHT;
@@ -464,7 +478,8 @@ static int16_t UI_FindItemIndexById(uint16_t itemId)
 /* Clear one item area                                                        */
 /* -------------------------------------------------------------------------- */
 
-static void UI_ClearItemArea(int16_t itemIndex)
+static void UI_EraseFocusFrame(
+    int16_t itemIndex)
 {
     if (itemIndex < 0 ||
         itemIndex >= (int16_t)UI_ITEM_COUNT)
@@ -479,87 +494,117 @@ static void UI_ClearItemArea(int16_t itemIndex)
     }
 
 
+    const UI_Item *item =
+        &uiItems[itemIndex];
+
     const UI_ItemGeometry *geometry =
         &uiGeometry[itemIndex];
 
 
-    /*
-     * Der Löschbereich ist etwas größer als die
-     * eigentliche Rasterzelle.
-     *
-     * Dadurch wird auch ein äußerer blauer oder
-     * pinker Fokusrahmen vollständig entfernt.
-     */
-    int16_t clearX =
-        geometry->x -
-        UI_FOCUS_FRAME_GAP -
-        1;
+    int16_t centerX =
+        geometry->x +
+        (geometry->width / 2);
 
-    int16_t clearY =
-        geometry->y -
-        UI_FOCUS_FRAME_GAP -
-        1;
-
-    int16_t clearWidth =
-        geometry->width +
-        (2 * UI_FOCUS_FRAME_GAP) +
-        2;
-
-    int16_t clearHeight =
-        geometry->height +
-        (2 * UI_FOCUS_FRAME_GAP) +
-        2;
+    int16_t centerY =
+        geometry->y +
+        (geometry->height / 2);
 
 
-    /*
-     * Auf sichtbaren Displaybereich begrenzen.
-     */
-    if (clearX < 0)
+    switch (item->type)
     {
-        clearWidth += clearX;
-        clearX = 0;
+        case UI_ITEM_LOOP:
+        {
+            /*
+             * Nur den äußeren Fokusrahmen löschen.
+             *
+             * Der eigentliche Loopkasten bleibt
+             * vollständig unangetastet.
+             */
+            UI_DrawRoundedRect(
+                geometry->x -
+                    UI_FOCUS_FRAME_GAP,
+
+                geometry->y -
+                    UI_FOCUS_FRAME_GAP,
+
+                geometry->width +
+                    (2 * UI_FOCUS_FRAME_GAP),
+
+                geometry->height +
+                    (2 * UI_FOCUS_FRAME_GAP),
+
+                UI_FOCUS_CORNER_RADIUS,
+
+                UI_COLOR_BACKGROUND
+            );
+
+            break;
+        }
+
+
+        case UI_ITEM_MANUAL_NODE:
+        {
+            /*
+             * Äußeren Fokusdiamanten löschen.
+             */
+            int16_t radius =
+                UI_MANUAL_NODE_RADIUS +
+                UI_FOCUS_FRAME_GAP;
+
+
+            ST7735_DrawLine(
+                centerX,
+                centerY - radius,
+                centerX + radius,
+                centerY,
+                UI_COLOR_BACKGROUND
+            );
+
+            ST7735_DrawLine(
+                centerX + radius,
+                centerY,
+                centerX,
+                centerY + radius,
+                UI_COLOR_BACKGROUND
+            );
+
+            ST7735_DrawLine(
+                centerX,
+                centerY + radius,
+                centerX - radius,
+                centerY,
+                UI_COLOR_BACKGROUND
+            );
+
+            ST7735_DrawLine(
+                centerX - radius,
+                centerY,
+                centerX,
+                centerY - radius,
+                UI_COLOR_BACKGROUND
+            );
+
+            break;
+        }
+
+
+        case UI_ITEM_INPUT:
+        case UI_ITEM_OUTPUT:
+        {
+            /*
+             * IN und OUT besitzen keinen separaten Rahmen.
+             *
+             * Der Kreis wird später mit der normalen
+             * weißen Farbe neu gezeichnet.
+             */
+            break;
+        }
+
+
+        case UI_ITEM_AUTO_NODE:
+        default:
+            break;
     }
-
-    if (clearY < 0)
-    {
-        clearHeight += clearY;
-        clearY = 0;
-    }
-
-    if ((clearX + clearWidth) >
-        UI_DISPLAY_WIDTH)
-    {
-        clearWidth =
-            UI_DISPLAY_WIDTH -
-            clearX;
-    }
-
-    /*
-     * Nicht in den Footer hinein löschen.
-     */
-    if ((clearY + clearHeight) >
-        UI_FOOTER_TOP)
-    {
-        clearHeight =
-            UI_FOOTER_TOP -
-            clearY;
-    }
-
-
-    if (clearWidth <= 0 ||
-        clearHeight <= 0)
-    {
-        return;
-    }
-
-
-    ST7735_FillRect(
-        (uint16_t)clearX,
-        (uint16_t)clearY,
-        (uint16_t)clearWidth,
-        (uint16_t)clearHeight,
-        UI_COLOR_BACKGROUND
-    );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -597,44 +642,53 @@ static void UI_UpdateSelectionDisplay(
     int16_t newIndex)
 {
     /*
-     * Alten und neuen Elementbereich löschen.
-     *
-     * Der alte Fokusrahmen muss entfernt werden.
-     * Der neue Bereich wird gelöscht, damit keine
-     * vorherigen Konturen zurückbleiben.
+     * Alten äußeren Auswahl- oder Greifrahmen
+     * gezielt entfernen.
      */
-    UI_ClearItemArea(oldIndex);
+    UI_EraseFocusFrame(oldIndex);
 
+
+    /*
+     * Verbindungen des alten Elements können durch
+     * das Entfernen des Fokusrahmens teilweise
+     * überzeichnet worden sein.
+     */
+    UI_DrawConnectionsForItem(
+        oldIndex
+    );
+
+
+    /*
+     * Verbindungen des neuen Elements vorsorglich
+     * vor dem Item neu zeichnen.
+     */
     if (newIndex != oldIndex)
     {
-        UI_ClearItemArea(newIndex);
+        UI_DrawConnectionsForItem(
+            newIndex
+        );
     }
 
 
     /*
-     * Das Löschen der Itembereiche kann Endstücke
-     * angrenzender Verbindungen entfernen.
-     *
-     * Verbindungen sind wesentlich schneller neu
-     * zu zeichnen als der komplette Bildschirm.
+     * Items werden über den Verbindungslinien
+     * gezeichnet.
      */
-    UI_DrawConnections();
+    UI_RedrawItem(
+        oldIndex
+    );
 
-
-    /*
-     * Beide betroffenen Items über den Verbindungen
-     * neu zeichnen.
-     */
-    UI_RedrawItem(oldIndex);
 
     if (newIndex != oldIndex)
     {
-        UI_RedrawItem(newIndex);
+        UI_RedrawItem(
+            newIndex
+        );
     }
 
 
     /*
-     * Nur den Footer aktualisieren.
+     * Footerbereich aktualisieren.
      */
     UI_DrawFooter();
 }
@@ -1258,48 +1312,126 @@ static void UI_DrawDirectConnection(int16_t startX, int16_t startY,
                     UI_COLOR_CONNECTION);
 }
 
+static void UI_DrawConnectionByIndex(
+    uint16_t connectionIndex)
+{
+    if (connectionIndex >=
+        UI_CONNECTION_COUNT)
+    {
+        return;
+    }
+
+
+    int16_t sourceIndex =
+        UI_FindItemIndexById(
+            uiConnections[
+                connectionIndex
+            ].sourceId
+        );
+
+    int16_t targetIndex =
+        UI_FindItemIndexById(
+            uiConnections[
+                connectionIndex
+            ].targetId
+        );
+
+
+    if (sourceIndex < 0 ||
+        targetIndex < 0)
+    {
+        return;
+    }
+
+
+    const UI_ItemGeometry *sourceGeometry =
+        &uiGeometry[sourceIndex];
+
+    const UI_ItemGeometry *targetGeometry =
+        &uiGeometry[targetIndex];
+
+    const UI_Item *sourceItem =
+        &uiItems[sourceIndex];
+
+    const UI_Item *targetItem =
+        &uiItems[targetIndex];
+
+
+    if (!sourceGeometry->visible ||
+        !targetGeometry->visible)
+    {
+        return;
+    }
+
+
+    int16_t sourceCenterY =
+        sourceGeometry->y +
+        (sourceGeometry->height / 2);
+
+    int16_t targetCenterY =
+        targetGeometry->y +
+        (targetGeometry->height / 2);
+
+
+    UI_ConnectionPoint sourcePoint =
+        UI_GetSourceConnectionPoint(
+            sourceGeometry,
+            sourceItem,
+            targetCenterY
+        );
+
+    UI_ConnectionPoint targetPoint =
+        UI_GetTargetConnectionPoint(
+            targetGeometry,
+            targetItem,
+            sourceCenterY
+        );
+
+
+    UI_DrawDirectConnection(
+        sourcePoint.x,
+        sourcePoint.y,
+        targetPoint.x,
+        targetPoint.y
+    );
+}
+
+static void UI_DrawConnectionsForItem(
+    int16_t itemIndex)
+{
+    if (itemIndex < 0 ||
+        itemIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return;
+    }
+
+
+    uint16_t itemId =
+        uiItems[itemIndex].id;
+
+
+    for (uint16_t i = 0;
+         i < UI_CONNECTION_COUNT;
+         i++)
+    {
+        if (uiConnections[i].sourceId ==
+                itemId ||
+            uiConnections[i].targetId ==
+                itemId)
+        {
+            UI_DrawConnectionByIndex(i);
+        }
+    }
+}
+
+
 static void UI_DrawConnections(void)
 {
-    for (uint16_t i = 0; i < UI_CONNECTION_COUNT; i++)
+    for (uint16_t i = 0;
+         i < UI_CONNECTION_COUNT;
+         i++)
     {
-        int16_t sourceIndex =
-            UI_FindItemIndexById(uiConnections[i].sourceId);
-        int16_t targetIndex =
-            UI_FindItemIndexById(uiConnections[i].targetId);
-
-        if (sourceIndex < 0 || targetIndex < 0)
-        {
-            continue;
-        }
-
-        const UI_ItemGeometry *sourceGeometry =
-            &uiGeometry[sourceIndex];
-        const UI_ItemGeometry *targetGeometry =
-            &uiGeometry[targetIndex];
-        const UI_Item *sourceItem = &uiItems[sourceIndex];
-        const UI_Item *targetItem = &uiItems[targetIndex];
-
-        if (!sourceGeometry->visible || !targetGeometry->visible)
-        {
-            continue;
-        }
-
-        int16_t sourceCenterY =
-            sourceGeometry->y + (sourceGeometry->height / 2);
-        int16_t targetCenterY =
-            targetGeometry->y + (targetGeometry->height / 2);
-
-        UI_ConnectionPoint sourcePoint =
-            UI_GetSourceConnectionPoint(sourceGeometry,
-                                        sourceItem,
-                                        targetCenterY);
-        UI_ConnectionPoint targetPoint =
-            UI_GetTargetConnectionPoint(targetGeometry,
-                                        targetItem,
-                                        sourceCenterY);
-
-        UI_DrawDirectConnection(sourcePoint.x, sourcePoint.y,
-                                targetPoint.x, targetPoint.y);
+        UI_DrawConnectionByIndex(i);
     }
 }
 
