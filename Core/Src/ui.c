@@ -742,6 +742,225 @@ static uint8_t UI_IsPermanentItem(
     }
 }
 
+static int8_t UI_CompareItemPositions(
+    const UI_Item *itemA,
+    const UI_Item *itemB)
+{
+    if (itemA == NULL || itemB == NULL)
+    {
+        return 0;
+    }
+
+    /*
+     * Kleinere order-Werte liegen weiter links
+     * und kommen zuerst.
+     */
+    if (itemA->order < itemB->order)
+    {
+        return -1;
+    }
+
+    if (itemA->order > itemB->order)
+    {
+        return 1;
+    }
+
+    /*
+     * Bei gleicher Spalte:
+     * höhere Lane kommt zuerst.
+     *
+     * Beispiel:
+     * lane +1
+     * lane  0
+     * lane -1
+     */
+    if (itemA->lane > itemB->lane)
+    {
+        return -1;
+    }
+
+    if (itemA->lane < itemB->lane)
+    {
+        return 1;
+    }
+
+    /*
+     * Sicherheitsregel für unerwartet gleiche
+     * Rasterpositionen.
+     */
+    if (itemA->id < itemB->id)
+    {
+        return -1;
+    }
+
+    if (itemA->id > itemB->id)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int16_t UI_FindNextSelectableIndex(
+    int16_t currentIndex)
+{
+    if (currentIndex < 0 ||
+        currentIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return -1;
+    }
+
+    int16_t bestIndex = -1;
+
+    const UI_Item *currentItem =
+        &uiItems[currentIndex];
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if ((int16_t)i == currentIndex)
+        {
+            continue;
+        }
+
+        if (!UI_IsSelectable(&uiItems[i]))
+        {
+            continue;
+        }
+
+        /*
+         * Der Kandidat muss hinter dem aktuellen
+         * Item in der Rasterreihenfolge liegen.
+         */
+        if (UI_CompareItemPositions(
+                &uiItems[i],
+                currentItem) <= 0)
+        {
+            continue;
+        }
+
+        /*
+         * Ersten passenden Kandidaten übernehmen
+         * oder einen näheren Kandidaten finden.
+         */
+        if (bestIndex < 0 ||
+            UI_CompareItemPositions(
+                &uiItems[i],
+                &uiItems[bestIndex]) < 0)
+        {
+            bestIndex = (int16_t)i;
+        }
+    }
+
+    return bestIndex;
+}
+
+static int16_t UI_FindPreviousSelectableIndex(
+    int16_t currentIndex)
+{
+    if (currentIndex < 0 ||
+        currentIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return -1;
+    }
+
+    int16_t bestIndex = -1;
+
+    const UI_Item *currentItem =
+        &uiItems[currentIndex];
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if ((int16_t)i == currentIndex)
+        {
+            continue;
+        }
+
+        if (!UI_IsSelectable(&uiItems[i]))
+        {
+            continue;
+        }
+
+        /*
+         * Der Kandidat muss vor dem aktuellen Item
+         * in der Rasterreihenfolge liegen.
+         */
+        if (UI_CompareItemPositions(
+                &uiItems[i],
+                currentItem) >= 0)
+        {
+            continue;
+        }
+
+        /*
+         * Gesucht wird der größte Kandidat,
+         * der noch vor dem aktuellen Item liegt.
+         */
+        if (bestIndex < 0 ||
+            UI_CompareItemPositions(
+                &uiItems[i],
+                &uiItems[bestIndex]) > 0)
+        {
+            bestIndex = (int16_t)i;
+        }
+    }
+
+    return bestIndex;
+}
+
+static int16_t UI_FindFirstSelectableIndex(void)
+{
+    int16_t bestIndex = -1;
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsSelectable(&uiItems[i]))
+        {
+            continue;
+        }
+
+        if (bestIndex < 0 ||
+            UI_CompareItemPositions(
+                &uiItems[i],
+                &uiItems[bestIndex]) < 0)
+        {
+            bestIndex = (int16_t)i;
+        }
+    }
+
+    return bestIndex;
+}
+
+static int16_t UI_FindLastSelectableIndex(void)
+{
+    int16_t bestIndex = -1;
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsSelectable(&uiItems[i]))
+        {
+            continue;
+        }
+
+        if (bestIndex < 0 ||
+            UI_CompareItemPositions(
+                &uiItems[i],
+                &uiItems[bestIndex]) > 0)
+        {
+            bestIndex = (int16_t)i;
+        }
+    }
+
+    return bestIndex;
+}
+
 static int16_t UI_FindPermanentItemAt(
     int16_t order,
     int16_t lane,
@@ -920,11 +1139,7 @@ static void UI_SetSelectedIndex(
 void UI_SelectNext(void)
 {
     /*
-     * Solange ein Item gegriffen ist, darf der
-     * blaue Auswahlrahmen nicht weiterwandern.
-     *
-     * Später wird an dieser Stelle die
-     * Verschiebefunktion aufgerufen.
+     * Im Grab-Modus darf der Fokus nicht wandern.
      */
     if (UI_IsItemGrabbed())
     {
@@ -935,48 +1150,37 @@ void UI_SelectNext(void)
         UI_GetFocusedIndex();
 
     /*
-     * Falls noch kein Item fokussiert ist,
-     * erstes auswählbares Item suchen.
+     * Falls noch kein Fokus existiert,
+     * linkestes/oberstes Item auswählen.
      */
     if (currentIndex < 0)
     {
-        for (uint16_t i = 0;
-             i < UI_ITEM_COUNT;
-             i++)
-        {
-            if (UI_IsSelectable(
-                    &uiItems[i]))
-            {
-                UI_SetSelectedIndex(
-                    (int16_t)i
-                );
+        int16_t firstIndex =
+            UI_FindFirstSelectableIndex();
 
-                return;
-            }
+        if (firstIndex >= 0)
+        {
+            UI_SetSelectedIndex(firstIndex);
         }
 
         return;
     }
 
-    /*
-     * Kein Wrap-Around.
-     */
-    for (int16_t candidateIndex =
-             currentIndex + 1;
-         candidateIndex <
-             (int16_t)UI_ITEM_COUNT;
-         candidateIndex++)
-    {
-        if (UI_IsSelectable(
-                &uiItems[candidateIndex]))
-        {
-            UI_SetSelectedIndex(
-                candidateIndex
-            );
+    int16_t nextIndex =
+        UI_FindNextSelectableIndex(
+            currentIndex
+        );
 
-            return;
-        }
+    /*
+     * Kein Wrap-around.
+     * Am letzten Item bleibt die Auswahl stehen.
+     */
+    if (nextIndex < 0)
+    {
+        return;
     }
+
+    UI_SetSelectedIndex(nextIndex);
 }
 
 
@@ -984,8 +1188,7 @@ void UI_SelectNext(void)
 void UI_SelectPrevious(void)
 {
     /*
-     * Solange ein Item gegriffen ist,
-     * Auswahlbewegung blockieren.
+     * Im Grab-Modus darf der Fokus nicht wandern.
      */
     if (UI_IsItemGrabbed())
     {
@@ -996,45 +1199,36 @@ void UI_SelectPrevious(void)
         UI_GetFocusedIndex();
 
     /*
-     * Falls noch kein Item fokussiert ist,
-     * letztes auswählbares Item suchen.
+     * Falls noch kein Fokus existiert,
+     * rechtest/unterstes Item auswählen.
      */
     if (currentIndex < 0)
     {
-        for (int16_t i =
-                 (int16_t)UI_ITEM_COUNT - 1;
-             i >= 0;
-             i--)
+        int16_t lastIndex =
+            UI_FindLastSelectableIndex();
+
+        if (lastIndex >= 0)
         {
-            if (UI_IsSelectable(
-                    &uiItems[i]))
-            {
-                UI_SetSelectedIndex(i);
-                return;
-            }
+            UI_SetSelectedIndex(lastIndex);
         }
 
         return;
     }
 
-    /*
-     * Kein Wrap-Around.
-     */
-    for (int16_t candidateIndex =
-             currentIndex - 1;
-         candidateIndex >= 0;
-         candidateIndex--)
-    {
-        if (UI_IsSelectable(
-                &uiItems[candidateIndex]))
-        {
-            UI_SetSelectedIndex(
-                candidateIndex
-            );
+    int16_t previousIndex =
+        UI_FindPreviousSelectableIndex(
+            currentIndex
+        );
 
-            return;
-        }
+    /*
+     * Kein Wrap-around.
+     */
+    if (previousIndex < 0)
+    {
+        return;
     }
+
+    UI_SetSelectedIndex(previousIndex);
 }
 
 void UI_ToggleGrab(void)
