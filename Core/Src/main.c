@@ -91,18 +91,18 @@ static void Encoder_Update(void)
      * Ein mechanischer Rastpunkt entspricht
      * typischerweise vier Quadraturzuständen.
      */
-    while (encoderAccumulator >= 4)
+   while (encoderAccumulator >= 4)
 {
     encoderAccumulator -= 4;
 
-    UI_SelectNext();
+    UI_HandleEncoderStep(1);
 }
 
 while (encoderAccumulator <= -4)
 {
     encoderAccumulator += 4;
 
-    UI_SelectPrevious();
+    UI_HandleEncoderStep(-1);
 }
 }
 
