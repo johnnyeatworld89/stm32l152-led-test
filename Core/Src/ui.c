@@ -2002,54 +2002,61 @@ static void UI_MoveGrabbedHorizontal(
      * Nach jeder Strukturänderung werden alle
      * automatischen Knoten entfernt.
      */
-    UI_RemoveAllAutoNodes();
+/*
+ * Automatische Knoten nach einer vorläufigen
+ * Strukturänderung entfernen.
+ */
+UI_RemoveAllAutoNodes();
 
 
-    /*
-     * Falls ein Nicht-Input die linke Randspalte
-     * oder ein Nicht-Output die rechte Randspalte
-     * betreten hat, wird eine neue äußere Randspalte
-     * erzeugt.
-     *
-     * Anschließend werden leere Spalten geschlossen.
-     */
-    UI_EnsureEdgeColumns();
+/*
+ * Gültige IN-/OUT-Randspalten herstellen und
+ * vollständig leere Spalten schließen.
+ */
+UI_EnsureEdgeColumns();
 
 
-    /*
-     * Nach der Korrektur muss gelten:
-     *
-     * links nur Inputs
-     * rechts nur Outputs
-     */
-    if (!UI_ValidateEdgeRules())
-    {
-        UI_RestorePreviousStepState();
+/*
+ * Der normalisierte Zustand muss gültige
+ * Randspalten besitzen.
+ */
+if (!UI_ValidateEdgeRules())
+{
+    UI_RestorePreviousStepState();
 
-        return;
-    }
+    return;
+}
 
 
-    /*
-     * Wenn die Randkorrektur und das Schließen
-     * leerer Spalten wieder exakt zum vorherigen
-     * permanenten Zustand geführt haben, war der
-     * Encoderschritt wirkungslos.
-     *
-     * Beispiel:
-     * N01 war allein in order 1 und wird nach links
-     * bewegt. Nach Erzeugung der neuen Inputspalte
-     * und Schließen der nun leeren Spalte landet
-     * N01 wieder in order 1.
-     */
-
-
+/*
+ * Entscheidend ist der normalisierte Endzustand.
+ *
+ * Falls alle permanenten Items wieder dieselben
+ * Positionen besitzen wie vor dem Encoderschritt,
+ * hatte die Bewegung keine dauerhafte Wirkung.
+ *
+ * Der komplette Snapshot wird wiederhergestellt,
+ * damit auch die vorläufig entfernten automatischen
+ * Knoten erhalten bleiben.
+ */
+if (!UI_PermanentStructureChangedSincePreviousStep())
+{
+    UI_RestorePreviousStepState();
 
     /*
-     * Strukturelle Änderung zunächst vollständig
-     * neu darstellen.
+     * Kein UI_Draw():
+     * Auf dem Display wurde bisher noch nichts
+     * verändert.
      */
-    UI_Draw();
+    return;
+}
+
+
+/*
+ * Nur bei einer tatsächlich wirksamen Änderung
+ * den Bildschirm neu aufbauen.
+ */
+UI_Draw();
 }
 
 void UI_HandleEncoderStep(
