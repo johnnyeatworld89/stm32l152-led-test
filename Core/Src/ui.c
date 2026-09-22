@@ -1797,19 +1797,25 @@ static uint8_t UI_ItemPositionChanged(
         return 0;
     }
 
-    if (!UI_IsPermanentItem(
-            &uiItems[itemIndex]))
-    {
-        return 0;
+
+    /*
+     * Hier müssen ausdrücklich alle Itemtypen
+     * berücksichtigt werden, auch automatische Knoten.
+     *
+     * UI_PermanentStructureChangedSincePreviousStep()
+     * bleibt weiterhin ausschließlich für permanente
+     * Items zuständig.
+     */
+    if (uiItems[itemIndex].order*!=
+            previousStepState[itemIndex].order ||
+        uiItems[itemIndex].lane !=
+            prev*ousStepState[itemIndex].lane)
+    *
+        return 1;
     }
 
-    return
-        (uiItems[itemIndex].order !=
-             previousStepState[itemIndex].order ||
-         uiItems[itemIndex].lane !=
-             previousStepState[itemIndex].lane) ?
-        1 :
-        0;
+
+    ret*rn 0;
 }
 
 static void UI_SavePreviousStepState(void)
@@ -1923,14 +1929,29 @@ static void UI_MoveGrabbedHorizontal(
      * Inputs und Outputs selbst bleiben vorerst
      * fest in ihren Randspalten.
      */
-    if (grabbedItem->type ==
-            UI_ITEM_INPUT ||
-        grabbedItem->type ==
-            UI_ITEM_OUTPUT)
+    
+    /*
+     * Ein Input darf nicht weiter nach links bewegt
+     * werden, weil er bereits die linke Randseite bildet.
+     *
+     * Ein Output darf nicht weiter nach rechts bewegt
+     * werden, weil er bereits die rechte Randseite bildet.
+     *
+     * Bewegung nach innen bleibt erlaubt und wird später
+     * durch die vollständigen Randregeln validiert.
+     */
+    if (grabbedItem->type == UI_ITEM_INPUT &&
+        direction < 0)
     {
         return;
     }
-
+    
+    
+    if (grabbedItem->type == UI_ITEM_OUTPUT &&
+        direction > 0)
+    {
+        return;
+    }
 
     /*
      * Vollständigen Zustand vor diesem einzelnen
@@ -1951,21 +1972,8 @@ static void UI_MoveGrabbedHorizontal(
      * Die neue Input-Randspalte entsteht erst,
      * wenn ein Item die bisherige order 0 betritt.
      */
-    if (targetOrder < 0)
-    {
-        return;
-    }
-
-
-    /*
-     * Das gegriffene Item darf zunächst nur eine
-     * aktuell existierende sichtbare Spalte betreten.
-     *
-     * Die Randkorrektur kann danach eine weitere
-     * Spalte erzeugen.
-     */
-    if (targetOrder >=
-        UI_VISIBLE_ELEMENT_COLUMNS)
+    if (targetOrder < 0 ||
+        targetOrder >= UI_VISIBLE_ELEMENT_COLUMNS)
     {
         return;
     }
@@ -1979,6 +1987,22 @@ static void UI_MoveGrabbedHorizontal(
         );
 
 
+    /*
+     * Inputs und Outputs dürfen in dieser ersten
+     * Implementierung nur auf eine leere Position oder
+     * auf die Position eines automatischen Knotens
+     * bewegt werden.
+     *
+     * Ein direkter Tausch mit einem anderen permanenten
+     * Item wird vorerst verhindert.
+     */
+    if ((grabbedItem->type == UI_ITEM_INPUT ||
+         grabbedItem->type == UI_ITEM_OUTPUT) &&
+        targetPermanentIndex >= 0)
+    {
+        return;
+    }
+    
     /*
      * Ziel ist ein normales permanentes Item.
      */
