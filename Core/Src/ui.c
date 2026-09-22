@@ -1345,6 +1345,157 @@ static uint8_t UI_ValidateEdgeRules(void)
     return 1;
 }
 
+static void UI_EnsureEdgeColumns(void)
+{
+    int16_t minimumOrder =
+        UI_GetMinimumPermanentOrder();
+
+    int16_t maximumOrder =
+        UI_GetMaximumPermanentOrder();
+
+
+    if (minimumOrder < 0 ||
+        maximumOrder < 0)
+    {
+        return;
+    }
+
+
+    uint8_t invalidLeftEdge = 0;
+    uint8_t invalidRightEdge = 0;
+
+
+    /*
+     * Prüfen, ob die äußersten Spalten noch
+     * unerlaubte Itemtypen enthalten.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+
+        if (uiItems[i].order ==
+                minimumOrder &&
+            uiItems[i].type !=
+                UI_ITEM_INPUT)
+        {
+            invalidLeftEdge = 1;
+        }
+
+
+        if (uiItems[i].order ==
+                maximumOrder &&
+            uiItems[i].type !=
+                UI_ITEM_OUTPUT)
+        {
+            invalidRightEdge = 1;
+        }
+    }
+
+
+    /*
+     * Ungültige linke Randspalte:
+     *
+     * Alle Nicht-Inputs werden um eine Spalte
+     * nach rechts verschoben.
+     *
+     * Inputs bleiben in order 0.
+     */
+    if (invalidLeftEdge)
+    {
+        for (uint16_t i = 0;
+             i < UI_ITEM_COUNT;
+             i++)
+        {
+            if (!UI_IsPermanentItem(
+                    &uiItems[i]))
+            {
+                continue;
+            }
+
+
+            if (uiItems[i].type ==
+                UI_ITEM_INPUT)
+            {
+                uiItems[i].order = 0;
+            }
+            else
+            {
+                uiItems[i].order++;
+            }
+        }
+    }
+
+
+    /*
+     * Nach einer möglichen linken Erweiterung
+     * die äußerste Nicht-Output-Spalte neu bestimmen.
+     */
+    if (invalidRightEdge)
+    {
+        int16_t maximumNonOutputOrder = -1;
+
+
+        for (uint16_t i = 0;
+             i < UI_ITEM_COUNT;
+             i++)
+        {
+            if (!UI_IsPermanentItem(
+                    &uiItems[i]))
+            {
+                continue;
+            }
+
+
+            if (uiItems[i].type ==
+                UI_ITEM_OUTPUT)
+            {
+                continue;
+            }
+
+
+            if (uiItems[i].order >
+                maximumNonOutputOrder)
+            {
+                maximumNonOutputOrder =
+                    uiItems[i].order;
+            }
+        }
+
+
+        if (maximumNonOutputOrder >= 0)
+        {
+            int16_t newOutputOrder =
+                maximumNonOutputOrder + 1;
+
+
+            for (uint16_t i = 0;
+                 i < UI_ITEM_COUNT;
+                 i++)
+            {
+                if (uiItems[i].type ==
+                    UI_ITEM_OUTPUT)
+                {
+                    uiItems[i].order =
+                        newOutputOrder;
+                }
+            }
+        }
+    }
+
+
+    /*
+     * Vollständig leere Spalten schließen.
+     */
+    UI_NormalizeOrders();
+}
+
 static int16_t UI_GetFocusedIndex(void)
 {
     for (uint16_t i = 0;
@@ -1667,7 +1818,6 @@ UI_PermanentStructureChangedSincePreviousStep(void)
 }
 
 
-
 static void UI_MoveGrabbedHorizontal(
     int8_t direction)
 {
@@ -1698,47 +1848,60 @@ static void UI_MoveGrabbedHorizontal(
         &uiItems[grabbedIndex];
 
 
- if (!UI_IsPermanentItem(
-        grabbedItem))
-{
-    return;
-}
+    if (!UI_IsPermanentItem(
+            grabbedItem))
+    {
+        return;
+    }
 
 
-/*
- * Beim aktuellen Test bleiben Inputs und Outputs
- * fest an ihren Randpositionen.
- *
- * Da keine Bewegung stattfindet, wird auch kein
- * neuer vorheriger Zustand gespeichert.
- */
-if (grabbedItem->type ==
-        UI_ITEM_INPUT ||
-    grabbedItem->type ==
-        UI_ITEM_OUTPUT)
-{
-    return;
-}
+    /*
+     * Inputs und Outputs selbst bleiben vorerst
+     * fest in ihren Randspalten.
+     */
+    if (grabbedItem->type ==
+            UI_ITEM_INPUT ||
+        grabbedItem->type ==
+            UI_ITEM_OUTPUT)
+    {
+        return;
+    }
 
 
-/*
- * Zustand unmittelbar vor diesem einzelnen
- * Encoder-Schritt sichern.
- *
- * Der Snapshot muss vor jeder Änderung an
- * order, lane oder automatischen Knoten erfolgen.
- */
-UI_SavePreviousStepState();
+    /*
+     * Vollständigen Zustand vor diesem einzelnen
+     * Encoderschritt sichern.
+     */
+    UI_SavePreviousStepState();
 
 
-int16_t targetOrder =
-    grabbedItem->order +
-    ((direction > 0) ? 1 : -1);
+    int16_t targetOrder =
+        grabbedItem->order +
+        ((direction > 0) ? 1 : -1);
 
 
-    if (targetOrder < 0 ||
-        targetOrder >=
-            UI_VISIBLE_ELEMENT_COLUMNS)
+    /*
+     * Links von order 0 existiert zunächst keine
+     * direkte Zielposition.
+     *
+     * Die neue Input-Randspalte entsteht erst,
+     * wenn ein Item die bisherige order 0 betritt.
+     */
+    if (targetOrder < 0)
+    {
+        return;
+    }
+
+
+    /*
+     * Das gegriffene Item darf zunächst nur eine
+     * aktuell existierende sichtbare Spalte betreten.
+     *
+     * Die Randkorrektur kann danach eine weitere
+     * Spalte erzeugen.
+     */
+    if (targetOrder >=
+        UI_VISIBLE_ELEMENT_COLUMNS)
     {
         return;
     }
@@ -1752,17 +1915,8 @@ int16_t targetOrder =
         );
 
 
-    int16_t targetAutoNodeIndex =
-        UI_FindAutoNodeAt(
-            targetOrder,
-            grabbedItem->lane
-        );
-
-
     /*
-     * Ein Loop oder manueller Knoten darf beim
-     * aktuellen Ein-/Ausgangstest nicht mit IN
-     * oder OUT tauschen.
+     * Ziel ist ein normales permanentes Item.
      */
     if (targetPermanentIndex >= 0)
     {
@@ -1772,72 +1926,72 @@ int16_t targetOrder =
             ].type;
 
 
-        if (targetType ==
-                UI_ITEM_INPUT ||
-            targetType ==
-                UI_ITEM_OUTPUT)
+        if ((targetType ==
+                 UI_ITEM_INPUT &&
+             direction < 0) ||
+            (targetType ==
+                 UI_ITEM_OUTPUT &&
+             direction > 0))
         {
-            return;
+            /*
+             * Das gegriffene Item betritt die
+             * bisherige Randspalte.
+             *
+             * Kein Tausch mit IN beziehungsweise OUT.
+             * UI_EnsureEdgeColumns() verschiebt den
+             * Rand anschließend nach außen.
+             */
+            grabbedItem->order =
+                uiItems[
+                    targetPermanentIndex
+                ].order;
+        }
+        else
+        {
+            /*
+             * Zwei normale permanente Items tauschen
+             * ihre vollständigen Rasterpositionen.
+             */
+            int16_t grabbedOldOrder =
+                grabbedItem->order;
+
+            int16_t grabbedOldLane =
+                grabbedItem->lane;
+
+            int16_t targetOldOrder =
+                uiItems[
+                    targetPermanentIndex
+                ].order;
+
+            int16_t targetOldLane =
+                uiItems[
+                    targetPermanentIndex
+                ].lane;
+
+
+            uiItems[
+                targetPermanentIndex
+            ].order =
+                grabbedOldOrder;
+
+            uiItems[
+                targetPermanentIndex
+            ].lane =
+                grabbedOldLane;
+
+
+            grabbedItem->order =
+                targetOldOrder;
+
+            grabbedItem->lane =
+                targetOldLane;
         }
     }
-
-
-    /*
-     * Positionen sichern, damit die Änderung bei
-     * einer ungültigen Randstruktur zurückgenommen
-     * werden kann.
-     */
-    int16_t grabbedOldOrder =
-        grabbedItem->order;
-
-    int16_t grabbedOldLane =
-        grabbedItem->lane;
-
-    int16_t targetOldOrder = 0;
-    int16_t targetOldLane = 0;
-
-
-    if (targetPermanentIndex >= 0)
-    {
-        targetOldOrder =
-            uiItems[
-                targetPermanentIndex
-            ].order;
-
-        targetOldLane =
-            uiItems[
-                targetPermanentIndex
-            ].lane;
-
-
-        /*
-         * Permanente Items tauschen ihre Positionen.
-         */
-        uiItems[
-            targetPermanentIndex
-        ].order =
-            grabbedOldOrder;
-
-        uiItems[
-            targetPermanentIndex
-        ].lane =
-            grabbedOldLane;
-
-
-        grabbedItem->order =
-            targetOldOrder;
-
-        grabbedItem->lane =
-            targetOldLane;
-    }
-
-
-        
     else
     {
         /*
-         * Leere Rasterposition beziehungsweise
-         * Position eines automatischen Knotens.
+         * Zielposition ist leer oder enthält nur
+         * einen automatischen Knoten.
          */
         grabbedItem->order =
             targetOrder;
@@ -1845,109 +1999,57 @@ int16_t targetOrder =
 
 
     /*
-     * Randbedingungen vor der endgültigen
-     * Übernahme prüfen.
-     */
-    if (!UI_ValidateEdgeRules())
-    {
-        /*
-         * Ungültige Bewegung rückgängig machen.
-         */
-        grabbedItem->order =
-            grabbedOldOrder;
-
-        grabbedItem->lane =
-            grabbedOldLane;
-
-
-        if (targetPermanentIndex >= 0)
-        {
-            uiItems[
-                targetPermanentIndex
-            ].order =
-                targetOldOrder;
-
-            uiItems[
-                targetPermanentIndex
-            ].lane =
-                targetOldLane;
-        }
-
-
-        return;
-    }
-
-
-    /*
-     * Erfolgreiche Strukturänderung:
-     * Alle automatischen Knoten löschen.
-     *
-     * Die vollständige automatische Neuberechnung
-     * folgt in einem späteren Schritt.
+     * Nach jeder Strukturänderung werden alle
+     * automatischen Knoten entfernt.
      */
     UI_RemoveAllAutoNodes();
 
 
     /*
-     * Vollständig leere Spalten entfernen und
-     * order-Werte lückenlos normalisieren.
+     * Falls ein Nicht-Input die linke Randspalte
+     * oder ein Nicht-Output die rechte Randspalte
+     * betreten hat, wird eine neue äußere Randspalte
+     * erzeugt.
+     *
+     * Anschließend werden leere Spalten geschlossen.
      */
-    UI_NormalizeOrders();
+    UI_EnsureEdgeColumns();
 
 
     /*
-     * Nach der Normalisierung nochmals die
-     * Randbedingungen prüfen.
+     * Nach der Korrektur muss gelten:
+     *
+     * links nur Inputs
+     * rechts nur Outputs
      */
     if (!UI_ValidateEdgeRules())
     {
-        /*
-         * Dieser Zustand sollte bei der aktuellen
-         * Teststruktur nicht auftreten.
-         *
-         * Später wird hier previousStepState
-         * wiederhergestellt.
-         */
         UI_RestorePreviousStepState();
+
         return;
     }
 
 
     /*
-     * Für strukturelle Änderungen zunächst
-     * vollständige Darstellung aktualisieren.
-     */
-    
-    /*
- * Falls Normalisierung und Schließen leerer Spalten
- * wieder zum ursprünglichen Zustand geführt haben,
- * ist die Bewegung wirkungslos.
- */
-if (!UI_PermanentStructureChangedSincePreviousStep())
-{
-    /*
-     * Normalisierung hat für die permanenten Items
-     * wieder den ursprünglichen Zustand hergestellt.
+     * Wenn die Randkorrektur und das Schließen
+     * leerer Spalten wieder exakt zum vorherigen
+     * permanenten Zustand geführt haben, war der
+     * Encoderschritt wirkungslos.
      *
-     * Auch automatisch entfernte Knoten werden
-     * deshalb wiederhergestellt.
+     * Beispiel:
+     * N01 war allein in order 1 und wird nach links
+     * bewegt. Nach Erzeugung der neuen Inputspalte
+     * und Schließen der nun leeren Spalte landet
+     * N01 wieder in order 1.
      */
-    UI_RestorePreviousStepState();
 
-    return;
-}
-    
+
+
+    /*
+     * Strukturelle Änderung zunächst vollständig
+     * neu darstellen.
+     */
     UI_Draw();
-
-
-    (void)targetAutoNodeIndex;
-
-if (!UI_PermanentStructureChangedSincePreviousStep())
-{
-    UI_RestorePreviousStepState();
-    return;
-}
-    
 }
 
 void UI_HandleEncoderStep(
