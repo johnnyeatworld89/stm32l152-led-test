@@ -161,6 +161,8 @@ static void UI_DrawConnectionsForItem(
     int16_t itemIndex
 );
 
+static void UI_UpdateChangedStructureDisplay(void);
+
 static void UI_DrawItem(
     const UI_Item *item,
     int16_t x,
@@ -1082,53 +1084,6 @@ static int16_t UI_FindPermanentItemAt(
     return -1;
 }
 
-static int16_t UI_FindAutoNodeAt(
-    int16_t order,
-    int16_t lane)
-{
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
-    {
-        if (uiItems[i].type !=
-            UI_ITEM_AUTO_NODE)
-        {
-            continue;
-        }
-
-        if (uiItems[i].order == order &&
-            uiItems[i].lane == lane)
-        {
-            return (int16_t)i;
-        }
-    }
-
-    return -1;
-}
-
-static void UI_RemoveAutoNode(
-    int16_t autoNodeIndex)
-{
-    if (autoNodeIndex < 0 ||
-        autoNodeIndex >=
-            (int16_t)UI_ITEM_COUNT)
-    {
-        return;
-    }
-
-    if (uiItems[autoNodeIndex].type !=
-        UI_ITEM_AUTO_NODE)
-    {
-        return;
-    }
-
-    /*
-     * Vorläufige Testlösung:
-     * Knoten außerhalb des sichtbaren Bereichs ablegen.
-     */
-    uiItems[autoNodeIndex].order = -100;
-    uiItems[autoNodeIndex].lane = 0;
-}
 
 static void UI_RemoveAllAutoNodes(void)
 {
