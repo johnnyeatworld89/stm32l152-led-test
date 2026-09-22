@@ -1799,20 +1799,23 @@ static uint8_t UI_ItemPositionChanged(
 
 
     /*
-     * Hier müssen ausdrücklich alle Itemtypen
-     * berücksichtigt werden, auch automatische Knoten.
+     * Alle Itemtypen berücksichtigen.
      *
-     * UI_PermanentStructureChangedSincePreviousStep()
-     * bleibt weiterhin ausschließlich für permanente
-     * Items zuständig.
+     * Dadurch wird auch ein automatischer Knoten
+     * als geändert erkannt, wenn dessen order beim
+     * Löschen beispielsweise auf -100 gesetzt wird.
      */
-    if (uiItems[itemIndex].order*!=
+    if (uiItems[itemIndex].order !=
             previousStepState[itemIndex].order ||
         uiItems[itemIndex].lane !=
-            prev*ousStepState[itemIndex].lane)
-    *
+            previousStepState[itemIndex].lane)
+    {
         return 1;
     }
+
+
+    return 0;
+}
 
 
     ret*rn 0;
