@@ -31,7 +31,15 @@ static void Error_Handler(void);
 
 static uint8_t encoderState = 0;
 static int8_t encoderAccumulator = 0;
-static uint8_t buttonLastState = 1;
+#define ENCODER_BUTTON_DEBOUNCE_MS  30U
+
+static GPIO_PinState buttonRawState =
+    GPIO_PIN_SET;
+
+static GPIO_PinState buttonStableState =
+    GPIO_PIN_SET;
+
+static uint32_t buttonLastChangeTick = 0U;
 
 static void Encoder_Update(void)
 {
@@ -105,27 +113,63 @@ while (encoderAccumulator <= -4)
     UI_HandleEncoderStep(-1);
 }
 }
-
 static void Button_Update(void)
 {
-    uint8_t currentState =
+    GPIO_PinState currentRawState =
         HAL_GPIO_ReadPin(
             GPIOA,
             GPIO_PIN_0
         );
 
+    uint32_t currentTick =
+        HAL_GetTick();
+
+
     /*
-     * Taste gedrückt:
-     * HIGH -> LOW
+     * Rohsignal hat sich verändert.
+     * Entprellzeit ab diesem Zeitpunkt neu starten.
      */
-    if (buttonLastState &&
-        !currentState)
+    if (currentRawState != buttonRawState)
     {
-        UI_ToggleGrab();
+        buttonRawState =
+            currentRawState;
+
+        buttonLastChangeTick =
+            currentTick;
     }
 
-    buttonLastState =
-        currentState;
+
+    /*
+     * Der neue Zustand muss mindestens
+     * ENCODER_BUTTON_DEBOUNCE_MS stabil sein.
+     */
+    if ((currentTick - buttonLastChangeTick) >=
+        ENCODER_BUTTON_DEBOUNCE_MS)
+    {
+        /*
+         * Nur bei einer Änderung des stabilen
+         * Zustands reagieren.
+         */
+        if (buttonStableState != buttonRawState)
+        {
+            buttonStableState =
+                buttonRawState;
+
+
+            /*
+             * Active-low:
+             * Nur die bestätigte Druckflanke löst
+             * eine Aktion aus.
+             *
+             * Beim Loslassen erfolgt keine Aktion.
+             */
+            if (buttonStableState ==
+                GPIO_PIN_RESET)
+            {
+                UI_ToggleGrab();
+            }
+        }
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -154,11 +198,26 @@ int main(void)
     /* ---------------------------------------------------------------------- */
 
     MX_GPIO_Init();
+ 
     MX_SPI1_Init();
-
 
     /* Give the hardware a short moment to stabilize */
     HAL_Delay(200);
+
+ 
+ buttonRawState =
+    HAL_GPIO_ReadPin(
+        GPIOA,
+        GPIO_PIN_0
+    );
+
+buttonStableState =
+    buttonRawState;
+
+buttonLastChangeTick =
+    HAL_GetTick();
+
+
 
 
     /* ---------------------------------------------------------------------- */
