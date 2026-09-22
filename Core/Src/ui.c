@@ -1039,6 +1039,264 @@ static void UI_RemoveAutoNode(
     uiItems[autoNodeIndex].lane = 0;
 }
 
+static void UI_RemoveAllAutoNodes(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].type ==
+            UI_ITEM_AUTO_NODE)
+        {
+            /*
+             * Testlösung:
+             * Automatischen Knoten außerhalb der
+             * sichtbaren Struktur ablegen.
+             */
+            uiItems[i].order = -100;
+            uiItems[i].lane = 0;
+        }
+    }
+}
+
+static void UI_NormalizeOrders(void)
+{
+    int16_t oldOrders[UI_ITEM_COUNT];
+
+
+    /*
+     * Ursprüngliche order-Werte sichern.
+     *
+     * Die Sicherung ist notwendig, weil die neuen
+     * Werte nicht während der Berechnung die noch
+     * auszuwertenden alten Werte verändern dürfen.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        oldOrders[i] =
+            uiItems[i].order;
+    }
+
+
+    for (uint16_t itemIndex = 0;
+         itemIndex < UI_ITEM_COUNT;
+         itemIndex++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[itemIndex]))
+        {
+            continue;
+        }
+
+        if (oldOrders[itemIndex] < 0)
+        {
+            continue;
+        }
+
+
+        int16_t normalizedOrder = 0;
+
+
+        /*
+         * Anzahl der unterschiedlichen belegten
+         * Spalten links vom aktuellen Item bestimmen.
+         */
+        for (uint16_t candidateIndex = 0;
+             candidateIndex < UI_ITEM_COUNT;
+             candidateIndex++)
+        {
+            if (!UI_IsPermanentItem(
+                    &uiItems[candidateIndex]))
+            {
+                continue;
+            }
+
+            int16_t candidateOrder =
+                oldOrders[candidateIndex];
+
+
+            if (candidateOrder < 0 ||
+                candidateOrder >=
+                    oldOrders[itemIndex])
+            {
+                continue;
+            }
+
+
+            /*
+             * Prüfen, ob dieser kleinere order-Wert
+             * bereits zuvor gezählt wurde.
+             */
+            uint8_t alreadyCounted = 0;
+
+
+            for (uint16_t previousIndex = 0;
+                 previousIndex <
+                    candidateIndex;
+                 previousIndex++)
+            {
+                if (!UI_IsPermanentItem(
+                        &uiItems[previousIndex]))
+                {
+                    continue;
+                }
+
+                if (oldOrders[previousIndex] ==
+                    candidateOrder)
+                {
+                    alreadyCounted = 1;
+                    break;
+                }
+            }
+
+
+            if (!alreadyCounted)
+            {
+                normalizedOrder++;
+            }
+        }
+
+
+        uiItems[itemIndex].order =
+            normalizedOrder;
+    }
+}
+
+static int16_t UI_GetMinimumPermanentOrder(void)
+{
+    int16_t minimumOrder = 32767;
+    uint8_t found = 0;
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order < 0)
+        {
+            continue;
+        }
+
+        if (!found ||
+            uiItems[i].order <
+                minimumOrder)
+        {
+            minimumOrder =
+                uiItems[i].order;
+
+            found = 1;
+        }
+    }
+
+
+    return found ? minimumOrder : -1;
+}
+
+static int16_t UI_GetMaximumPermanentOrder(void)
+{
+    int16_t maximumOrder = -32768;
+    uint8_t found = 0;
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order < 0)
+        {
+            continue;
+        }
+
+        if (!found ||
+            uiItems[i].order >
+                maximumOrder)
+        {
+            maximumOrder =
+                uiItems[i].order;
+
+            found = 1;
+        }
+    }
+
+
+    return found ? maximumOrder : -1;
+}
+
+static uint8_t UI_ValidateEdgeRules(void)
+{
+    int16_t minimumOrder =
+        UI_GetMinimumPermanentOrder();
+
+    int16_t maximumOrder =
+        UI_GetMaximumPermanentOrder();
+
+
+    if (minimumOrder < 0 ||
+        maximumOrder < 0)
+    {
+        return 0;
+    }
+
+
+    uint8_t inputAtLeftEdge = 0;
+    uint8_t outputAtRightEdge = 0;
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+
+        if (uiItems[i].type ==
+            UI_ITEM_INPUT)
+        {
+            if (uiItems[i].order ==
+                minimumOrder)
+            {
+                inputAtLeftEdge = 1;
+            }
+        }
+
+
+        if (uiItems[i].type ==
+            UI_ITEM_OUTPUT)
+        {
+            if (uiItems[i].order ==
+                maximumOrder)
+            {
+                outputAtRightEdge = 1;
+            }
+        }
+    }
+
+
+    return
+        (inputAtLeftEdge &&
+         outputAtRightEdge) ?
+        1 :
+        0;
+}
+
 static int16_t UI_GetFocusedIndex(void)
 {
     for (uint16_t i = 0;
@@ -1303,13 +1561,16 @@ static void UI_MoveGrabbedHorizontal(
         return;
     }
 
+
     int16_t grabbedIndex =
         UI_GetFocusedIndex();
+
 
     if (grabbedIndex < 0)
     {
         return;
     }
+
 
     if (uiItems[grabbedIndex].focus !=
         UI_FOCUS_GRABBED)
@@ -1317,17 +1578,38 @@ static void UI_MoveGrabbedHorizontal(
         return;
     }
 
+
     UI_Item *grabbedItem =
         &uiItems[grabbedIndex];
 
-    if (!UI_IsPermanentItem(grabbedItem))
+
+    if (!UI_IsPermanentItem(
+            grabbedItem))
     {
         return;
     }
 
+
+    /*
+     * Beim ersten Test bleiben der einzige Input
+     * und der einzige Output fest an den Rändern.
+     *
+     * Die Regeln für mehrere Inputs und Outputs
+     * werden später ergänzt.
+     */
+    if (grabbedItem->type ==
+            UI_ITEM_INPUT ||
+        grabbedItem->type ==
+            UI_ITEM_OUTPUT)
+    {
+        return;
+    }
+
+
     int16_t targetOrder =
         grabbedItem->order +
         ((direction > 0) ? 1 : -1);
+
 
     if (targetOrder < 0 ||
         targetOrder >=
@@ -1336,6 +1618,7 @@ static void UI_MoveGrabbedHorizontal(
         return;
     }
 
+
     int16_t targetPermanentIndex =
         UI_FindPermanentItemAt(
             targetOrder,
@@ -1343,35 +1626,78 @@ static void UI_MoveGrabbedHorizontal(
             grabbedIndex
         );
 
+
     int16_t targetAutoNodeIndex =
         UI_FindAutoNodeAt(
             targetOrder,
             grabbedItem->lane
         );
 
-    int16_t oldOrder =
+
+    /*
+     * Ein Loop oder manueller Knoten darf beim
+     * aktuellen Ein-/Ausgangstest nicht mit IN
+     * oder OUT tauschen.
+     */
+    if (targetPermanentIndex >= 0)
+    {
+        UI_ItemType targetType =
+            uiItems[
+                targetPermanentIndex
+            ].type;
+
+
+        if (targetType ==
+                UI_ITEM_INPUT ||
+            targetType ==
+                UI_ITEM_OUTPUT)
+        {
+            return;
+        }
+    }
+
+
+    /*
+     * Positionen sichern, damit die Änderung bei
+     * einer ungültigen Randstruktur zurückgenommen
+     * werden kann.
+     */
+    int16_t grabbedOldOrder =
         grabbedItem->order;
 
-    int16_t oldLane =
+    int16_t grabbedOldLane =
         grabbedItem->lane;
+
+    int16_t targetOldOrder = 0;
+    int16_t targetOldLane = 0;
+
 
     if (targetPermanentIndex >= 0)
     {
+        targetOldOrder =
+            uiItems[
+                targetPermanentIndex
+            ].order;
+
+        targetOldLane =
+            uiItems[
+                targetPermanentIndex
+            ].lane;
+
+
         /*
-         * Zielposition ist durch ein permanentes
-         * Item belegt: Positionen tauschen.
+         * Permanente Items tauschen ihre Positionen.
          */
-        int16_t targetOldOrder =
-            uiItems[targetPermanentIndex].order;
+        uiItems[
+            targetPermanentIndex
+        ].order =
+            grabbedOldOrder;
 
-        int16_t targetOldLane =
-            uiItems[targetPermanentIndex].lane;
+        uiItems[
+            targetPermanentIndex
+        ].lane =
+            grabbedOldLane;
 
-        uiItems[targetPermanentIndex].order =
-            oldOrder;
-
-        uiItems[targetPermanentIndex].lane =
-            oldLane;
 
         grabbedItem->order =
             targetOldOrder;
@@ -1382,26 +1708,90 @@ static void UI_MoveGrabbedHorizontal(
     else
     {
         /*
-         * Automatischer Knoten wird verdrängt.
+         * Leere Rasterposition beziehungsweise
+         * Position eines automatischen Knotens.
          */
-        if (targetAutoNodeIndex >= 0)
-        {
-            UI_RemoveAutoNode(
-                targetAutoNodeIndex
-            );
-        }
-
         grabbedItem->order =
             targetOrder;
     }
 
+
     /*
-     * Vollständiges Neuzeichnen ist für diesen
-     * ersten Strukturtest zunächst beabsichtigt.
+     * Randbedingungen vor der endgültigen
+     * Übernahme prüfen.
+     */
+    if (!UI_ValidateEdgeRules())
+    {
+        /*
+         * Ungültige Bewegung rückgängig machen.
+         */
+        grabbedItem->order =
+            grabbedOldOrder;
+
+        grabbedItem->lane =
+            grabbedOldLane;
+
+
+        if (targetPermanentIndex >= 0)
+        {
+            uiItems[
+                targetPermanentIndex
+            ].order =
+                targetOldOrder;
+
+            uiItems[
+                targetPermanentIndex
+            ].lane =
+                targetOldLane;
+        }
+
+
+        return;
+    }
+
+
+    /*
+     * Erfolgreiche Strukturänderung:
+     * Alle automatischen Knoten löschen.
      *
-     * UI_Draw() berechnet die Geometrie bereits neu.
+     * Die vollständige automatische Neuberechnung
+     * folgt in einem späteren Schritt.
+     */
+    UI_RemoveAllAutoNodes();
+
+
+    /*
+     * Vollständig leere Spalten entfernen und
+     * order-Werte lückenlos normalisieren.
+     */
+    UI_NormalizeOrders();
+
+
+    /*
+     * Nach der Normalisierung nochmals die
+     * Randbedingungen prüfen.
+     */
+    if (!UI_ValidateEdgeRules())
+    {
+        /*
+         * Dieser Zustand sollte bei der aktuellen
+         * Teststruktur nicht auftreten.
+         *
+         * Später wird hier previousStepState
+         * wiederhergestellt.
+         */
+        return;
+    }
+
+
+    /*
+     * Für strukturelle Änderungen zunächst
+     * vollständige Darstellung aktualisieren.
      */
     UI_Draw();
+
+
+    (void)targetAutoNodeIndex;
 }
 
 void UI_HandleEncoderStep(
