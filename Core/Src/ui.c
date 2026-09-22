@@ -753,7 +753,7 @@ static uint8_t UI_IsItemGrabbed(void)
         1 :
         0;
 }
-``
+
 
 
 static void UI_SetSelectedIndex(
@@ -875,7 +875,7 @@ void UI_SelectNext(void)
         }
     }
 }
-``
+
 
 
 void UI_SelectPrevious(void)
