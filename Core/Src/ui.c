@@ -1245,8 +1245,24 @@ static uint8_t UI_ValidateEdgeRules(void)
         UI_GetMaximumPermanentOrder();
 
 
+    /*
+     * Es muss mindestens eine permanente Spalte geben.
+     */
     if (minimumOrder < 0 ||
         maximumOrder < 0)
+    {
+        return 0;
+    }
+
+
+    /*
+     * Linke und rechte Randspalte müssen
+     * voneinander verschieden sein.
+     *
+     * In einer gültigen Struktur existieren
+     * mindestens eine IN- und eine OUT-Spalte.
+     */
+    if (minimumOrder >= maximumOrder)
     {
         return 0;
     }
@@ -1267,34 +1283,53 @@ static uint8_t UI_ValidateEdgeRules(void)
         }
 
 
-        if (uiItems[i].type ==
-            UI_ITEM_INPUT)
+        /*
+         * Äußerste linke Spalte:
+         * Hier dürfen ausschließlich Inputs liegen.
+         */
+        if (uiItems[i].order ==
+            minimumOrder)
         {
-            if (uiItems[i].order ==
-                minimumOrder)
+            if (uiItems[i].type !=
+                UI_ITEM_INPUT)
             {
-                inputAtLeftEdge = 1;
+                return 0;
             }
+
+            inputAtLeftEdge = 1;
         }
 
 
-        if (uiItems[i].type ==
-            UI_ITEM_OUTPUT)
+        /*
+         * Äußerste rechte Spalte:
+         * Hier dürfen ausschließlich Outputs liegen.
+         */
+        if (uiItems[i].order ==
+            maximumOrder)
         {
-            if (uiItems[i].order ==
-                maximumOrder)
+            if (uiItems[i].type !=
+                UI_ITEM_OUTPUT)
             {
-                outputAtRightEdge = 1;
+                return 0;
             }
+
+            outputAtRightEdge = 1;
         }
     }
 
 
-    return
-        (inputAtLeftEdge &&
-         outputAtRightEdge) ?
-        1 :
-        0;
+    /*
+     * Zusätzlich muss tatsächlich mindestens
+     * ein Input links und ein Output rechts liegen.
+     */
+    if (!inputAtLeftEdge ||
+        !outputAtRightEdge)
+    {
+        return 0;
+    }
+
+
+    return 1;
 }
 
 static int16_t UI_GetFocusedIndex(void)
