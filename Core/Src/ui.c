@@ -839,6 +839,35 @@ void UI_SelectPrevious(void)
     }
 }
 
+void UI_ToggleGrab(void)
+{
+    int16_t currentIndex =
+        UI_GetSelectedIndex();
+
+    if (currentIndex < 0)
+    {
+        return;
+    }
+
+    if (uiItems[currentIndex].focus ==
+        UI_FOCUS_SELECTED)
+    {
+        uiItems[currentIndex].focus =
+            UI_FOCUS_GRABBED;
+    }
+    else if (uiItems[currentIndex].focus ==
+             UI_FOCUS_GRABBED)
+    {
+        uiItems[currentIndex].focus =
+            UI_FOCUS_SELECTED;
+    }
+
+    UI_UpdateSelectionDisplay(
+        currentIndex,
+        currentIndex
+    );
+}
+
 
 static void UI_DrawLoop(const UI_Item *item, int16_t x, int16_t y)
 {
