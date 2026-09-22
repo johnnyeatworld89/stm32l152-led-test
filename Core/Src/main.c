@@ -31,6 +31,7 @@ static void Error_Handler(void);
 
 static uint8_t encoderState = 0;
 static int8_t encoderAccumulator = 0;
+static uint8_t buttonLastState = 1;
 
 static void Encoder_Update(void)
 {
@@ -105,7 +106,27 @@ while (encoderAccumulator <= -4)
 }
 }
 
+static void Button_Update(void)
+{
+    uint8_t currentState =
+        HAL_GPIO_ReadPin(
+            GPIOA,
+            GPIO_PIN_0
+        );
 
+    /*
+     * Taste gedrückt:
+     * HIGH -> LOW
+     */
+    if (buttonLastState &&
+        !currentState)
+    {
+        UI_ToggleGrab();
+    }
+
+    buttonLastState =
+        currentState;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                       */
@@ -191,6 +212,7 @@ int main(void)
 while (1)
 {
     Encoder_Update();
+    Button_Update();
 }
 }
 
