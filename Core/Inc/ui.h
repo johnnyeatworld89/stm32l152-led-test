@@ -255,5 +255,10 @@ void UI_SelectNext(void);
 void UI_SelectPrevious(void);
 void UI_ToggleGrab(void);
 
+uint8_t UI_IsGrabbed(void);
+
+void UI_HandleEncoderStep(
+    int8_t direction
+);
 
 #endif
