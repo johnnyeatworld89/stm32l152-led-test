@@ -253,6 +253,7 @@ void UI_Draw(void);
 
 void UI_SelectNext(void);
 void UI_SelectPrevious(void);
+void UI_ToggleGrab(void);
 
 
 #endif
