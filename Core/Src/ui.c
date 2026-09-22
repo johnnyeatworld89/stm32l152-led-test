@@ -177,6 +177,19 @@ typedef struct
     int16_t y;
 } UI_ConnectionPoint;
 
+typedef struct
+{
+    int16_t order;
+    int16_t lane;
+    UI_FocusState focus;
+
+} UI_ItemPositionState;
+
+
+static UI_ItemPositionState previousStepState[
+    UI_ITEM_COUNT
+];
+
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
 {
@@ -1588,6 +1601,10 @@ void UI_ToggleGrab(void)
     UI_DrawFooter();
 }
 
+/* -------------------------------------------------------------------------- */
+/* Movement snapshots                                                         */
+/* -------------------------------------------------------------------------- */
+
 static void UI_SavePreviousStepState(void)
 {
     for (uint16_t i = 0;
@@ -1604,6 +1621,7 @@ static void UI_SavePreviousStepState(void)
             uiItems[i].focus;
     }
 }
+
 
 static void UI_RestorePreviousStepState(void)
 {
@@ -1622,7 +1640,9 @@ static void UI_RestorePreviousStepState(void)
     }
 }
 
-static uint8_t UI_PermanentStructureChangedSincePreviousStep(void)
+
+static uint8_t
+UI_PermanentStructureChangedSincePreviousStep(void)
 {
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
@@ -1646,15 +1666,7 @@ static uint8_t UI_PermanentStructureChangedSincePreviousStep(void)
     return 0;
 }
 
-if (!UI_PermanentStructureChangedSincePreviousStep())
-{
-    /*
-     * Randspaltenerzeugung und Normalisierung haben
-     * zu keiner dauerhaften Bewegung geführt.
-     */
-    UI_RestorePreviousStepState();
-    return;
-}
+
 
 static void UI_MoveGrabbedHorizontal(
     int8_t direction)
@@ -1686,38 +1698,42 @@ static void UI_MoveGrabbedHorizontal(
         &uiItems[grabbedIndex];
 
 
-    if (!UI_IsPermanentItem(
-            grabbedItem))
-    {
-        return;
-    }
+ if (!UI_IsPermanentItem(
+        grabbedItem))
+{
+    return;
+}
 
-    /*
- * Zustand vor diesem einzelnen Encoder-Schritt
- * sichern.
+
+/*
+ * Beim aktuellen Test bleiben Inputs und Outputs
+ * fest an ihren Randpositionen.
+ *
+ * Da keine Bewegung stattfindet, wird auch kein
+ * neuer vorheriger Zustand gespeichert.
+ */
+if (grabbedItem->type ==
+        UI_ITEM_INPUT ||
+    grabbedItem->type ==
+        UI_ITEM_OUTPUT)
+{
+    return;
+}
+
+
+/*
+ * Zustand unmittelbar vor diesem einzelnen
+ * Encoder-Schritt sichern.
+ *
+ * Der Snapshot muss vor jeder Änderung an
+ * order, lane oder automatischen Knoten erfolgen.
  */
 UI_SavePreviousStepState();
-`
-
-    /*
-     * Beim ersten Test bleiben der einzige Input
-     * und der einzige Output fest an den Rändern.
-     *
-     * Die Regeln für mehrere Inputs und Outputs
-     * werden später ergänzt.
-     */
-    if (grabbedItem->type ==
-            UI_ITEM_INPUT ||
-        grabbedItem->type ==
-            UI_ITEM_OUTPUT)
-    {
-        return;
-    }
 
 
-    int16_t targetOrder =
-        grabbedItem->order +
-        ((direction > 0) ? 1 : -1);
+int16_t targetOrder =
+    grabbedItem->order +
+    ((direction > 0) ? 1 : -1);
 
 
     if (targetOrder < 0 ||
@@ -1907,8 +1923,17 @@ UI_SavePreviousStepState();
  * wieder zum ursprünglichen Zustand geführt haben,
  * ist die Bewegung wirkungslos.
  */
-if (!UI_StructureChangedSincePreviousStep())
+if (!UI_PermanentStructureChangedSincePreviousStep())
 {
+    /*
+     * Normalisierung hat für die permanenten Items
+     * wieder den ursprünglichen Zustand hergestellt.
+     *
+     * Auch automatisch entfernte Knoten werden
+     * deshalb wiederhergestellt.
+     */
+    UI_RestorePreviousStepState();
+
     return;
 }
     
@@ -1916,6 +1941,13 @@ if (!UI_StructureChangedSincePreviousStep())
 
 
     (void)targetAutoNodeIndex;
+
+if (!UI_PermanentStructureChangedSincePreviousStep())
+{
+    UI_RestorePreviousStepState();
+    return;
+}
+    
 }
 
 void UI_HandleEncoderStep(
@@ -2256,17 +2288,6 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
     return point;
 }
 
-typedef struct
-{
-    int16_t order;
-    int16_t lane;
-    UI_FocusState focus;
-
-} UI_ItemPositionState;
-
-static UI_ItemPositionState previousStepState[
-    UI_ITEM_COUNT
-];
 
 static void UI_DrawConnectionLine(int16_t x0, int16_t y0,
                                   int16_t x1, int16_t y1,
