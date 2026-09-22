@@ -853,10 +853,6 @@ static uint8_t UI_IsItemGrabbed(void)
         0;
 }
 
-uint8_t UI_IsGrabbed(void)
-{
-    return UI_IsItemGrabbed();
-}
 
 uint8_t UI_IsGrabbed(void)
 {
