@@ -2506,8 +2506,12 @@ static void UI_DrawConnectionLine(int16_t x0, int16_t y0,
     }
 }
 
-static void UI_DrawDirectConnection(int16_t startX, int16_t startY,
-                                    int16_t targetX, int16_t targetY)
+static void UI_DrawDirectConnection(
+    int16_t startX,
+    int16_t startY,
+    int16_t targetX,
+    int16_t targetY,
+    uint16_t color)
 {
     int16_t deltaX = targetX - startX;
     int16_t deltaY = targetY - startY;
@@ -2556,16 +2560,17 @@ static void UI_DrawDirectConnection(int16_t startX, int16_t startY,
     int16_t base2Y = baseCenterY - perpendicularY;
 
     UI_DrawConnectionLine(startX, startY, tipX, tipY,
-                          UI_COLOR_CONNECTION);
+                          color);
 
     UI_FillTriangle(tipX, tipY,
                     base1X, base1Y,
                     base2X, base2Y,
-                    UI_COLOR_CONNECTION);
+                    color);
 }
 
 static void UI_DrawConnectionByIndex(
-    uint16_t connectionIndex)
+    uint16_t connectionIndex,
+    uint16_t color)
 {
     if (connectionIndex >=
         UI_CONNECTION_COUNT)
@@ -2644,8 +2649,57 @@ static void UI_DrawConnectionByIndex(
         sourcePoint.x,
         sourcePoint.y,
         targetPoint.x,
-        targetPoint.y
+        targetPoint.y,
+        color
     );
+}
+
+static void UI_EraseConnectionsForChangedItems(void)
+{
+    /*
+     * Zu diesem Zeitpunkt enthält uiGeometry noch
+     * die alten Bildschirmpositionen.
+     *
+     * Deshalb können die alten Verbindungen exakt
+     * mit der Hintergrundfarbe überzeichnet werden.
+     */
+    for (uint16_t connectionIndex = 0;
+         connectionIndex < UI_CONNECTION_COUNT;
+         connectionIndex++)
+    {
+        int16_t sourceIndex =
+            UI_FindItemIndexById(
+                uiConnections[
+                    connectionIndex
+                ].sourceId
+            );
+
+        int16_t targetIndex =
+            UI_FindItemIndexById(
+                uiConnections[
+                    connectionIndex
+                ].targetId
+            );
+
+
+        if (sourceIndex < 0 ||
+            targetIndex < 0)
+        {
+            continue;
+        }
+
+
+        if (UI_ItemPositionChanged(
+                (uint16_t)sourceIndex) ||
+            UI_ItemPositionChanged(
+                (uint16_t)targetIndex))
+        {
+            UI_DrawConnectionByIndex(
+                connectionIndex,
+                UI_COLOR_BACKGROUND
+            );
+        }
+    }
 }
 
 static void UI_DrawConnectionsForChangedItems(void)
@@ -2681,7 +2735,8 @@ static void UI_DrawConnectionsForChangedItems(void)
                 (uint16_t)targetIndex))
         {
             UI_DrawConnectionByIndex(
-                connectionIndex
+                connectionIndex,
+                UI_COLOR_CONNECTION
             );
         }
     }
@@ -2710,7 +2765,10 @@ static void UI_DrawConnectionsForItem(
             uiConnections[i].targetId ==
                 itemId)
         {
-            UI_DrawConnectionByIndex(i);
+            UI_DrawConnectionByIndex(
+                i,
+                UI_COLOR_CONNECTION
+            );
         }
     }
 }
@@ -2722,15 +2780,28 @@ static void UI_DrawConnections(void)
          i < UI_CONNECTION_COUNT;
          i++)
     {
-        UI_DrawConnectionByIndex(i);
+        UI_DrawConnectionByIndex(
+            i,
+            UI_COLOR_CONNECTION
+        );
     }
 }
 
 static void UI_UpdateChangedStructureDisplay(void)
 {
     /*
-     * Zuerst alle alten Positionen der bewegten
-     * permanenten Items entfernen.
+     * uiGeometry enthält hier noch die alten
+     * Bildschirmpositionen.
+     *
+     * Zuerst alte Verbindungen gezielt schwarz
+     * überzeichnen.
+     */
+    UI_EraseConnectionsForChangedItems();
+
+
+    /*
+     * Alte Itempositionen einschließlich Rahmen
+     * vollständig löschen.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
@@ -2746,16 +2817,17 @@ static void UI_UpdateChangedStructureDisplay(void)
 
 
     /*
-     * Die neue Geometrie anhand von order und lane
-     * berechnen.
+     * Neue Bildschirmpositionen berechnen.
      */
     UI_CalculateGeometry();
 
 
     /*
-     * Auch die neuen Zielbereiche löschen.
+     * Neue Zielbereiche säubern.
      *
-     * Dies entfernt dort alte Items oder Fragmente.
+     * Das ist insbesondere beim Tausch zweier Items
+     * wichtig, weil dort noch die alte Darstellung
+     * des jeweils anderen Items stehen kann.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
@@ -2771,14 +2843,21 @@ static void UI_UpdateChangedStructureDisplay(void)
 
 
     /*
-     * Geänderte Verbindungen zuerst zeichnen.
+     * Neue Verbindungen in Weiß zeichnen.
      */
     UI_DrawConnectionsForChangedItems();
 
-
+/*
+ * Unveränderte Verbindungen an möglichen
+ * Kreuzungspunkten wiederherstellen.
+ *
+ * Das ist weiterhin deutlich schneller als ein
+ * kompletter Bildschirmaufbau, weil keine großen
+ * Flächen oder Texte neu gezeichnet werden.
+ */
+UI_DrawConnections();
     /*
-     * Bewegte Items anschließend über den
-     * Verbindungen zeichnen.
+     * Bewegte Items über den Verbindungen zeichnen.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
@@ -2798,6 +2877,10 @@ static void UI_UpdateChangedStructureDisplay(void)
     }
 
 
+    /*
+     * Langname bleibt unter dem gegriffenen Item
+     * zentriert.
+     */
     UI_DrawFooter();
 }
 
