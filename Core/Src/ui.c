@@ -1588,6 +1588,74 @@ void UI_ToggleGrab(void)
     UI_DrawFooter();
 }
 
+static void UI_SavePreviousStepState(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        previousStepState[i].order =
+            uiItems[i].order;
+
+        previousStepState[i].lane =
+            uiItems[i].lane;
+
+        previousStepState[i].focus =
+            uiItems[i].focus;
+    }
+}
+
+static void UI_RestorePreviousStepState(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        uiItems[i].order =
+            previousStepState[i].order;
+
+        uiItems[i].lane =
+            previousStepState[i].lane;
+
+        uiItems[i].focus =
+            previousStepState[i].focus;
+    }
+}
+
+static uint8_t UI_PermanentStructureChangedSincePreviousStep(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order !=
+                previousStepState[i].order ||
+            uiItems[i].lane !=
+                previousStepState[i].lane)
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+if (!UI_PermanentStructureChangedSincePreviousStep())
+{
+    /*
+     * Randspaltenerzeugung und Normalisierung haben
+     * zu keiner dauerhaften Bewegung geführt.
+     */
+    UI_RestorePreviousStepState();
+    return;
+}
+
 static void UI_MoveGrabbedHorizontal(
     int8_t direction)
 {
@@ -1624,6 +1692,12 @@ static void UI_MoveGrabbedHorizontal(
         return;
     }
 
+    /*
+ * Zustand vor diesem einzelnen Encoder-Schritt
+ * sichern.
+ */
+UI_SavePreviousStepState();
+`
 
     /*
      * Beim ersten Test bleiben der einzige Input
@@ -1740,6 +1814,9 @@ static void UI_MoveGrabbedHorizontal(
         grabbedItem->lane =
             targetOldLane;
     }
+
+
+        
     else
     {
         /*
@@ -1815,6 +1892,7 @@ static void UI_MoveGrabbedHorizontal(
          * Später wird hier previousStepState
          * wiederhergestellt.
          */
+        UI_RestorePreviousStepState();
         return;
     }
 
@@ -1823,6 +1901,17 @@ static void UI_MoveGrabbedHorizontal(
      * Für strukturelle Änderungen zunächst
      * vollständige Darstellung aktualisieren.
      */
+    
+    /*
+ * Falls Normalisierung und Schließen leerer Spalten
+ * wieder zum ursprünglichen Zustand geführt haben,
+ * ist die Bewegung wirkungslos.
+ */
+if (!UI_StructureChangedSincePreviousStep())
+{
+    return;
+}
+    
     UI_Draw();
 
 
@@ -2166,6 +2255,18 @@ static UI_ConnectionPoint UI_GetTargetConnectionPoint(
 
     return point;
 }
+
+typedef struct
+{
+    int16_t order;
+    int16_t lane;
+    UI_FocusState focus;
+
+} UI_ItemPositionState;
+
+static UI_ItemPositionState previousStepState[
+    UI_ITEM_COUNT
+];
 
 static void UI_DrawConnectionLine(int16_t x0, int16_t y0,
                                   int16_t x1, int16_t y1,
