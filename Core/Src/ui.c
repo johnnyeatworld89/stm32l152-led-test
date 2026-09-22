@@ -720,6 +720,105 @@ static uint8_t UI_IsSelectable(
     }
 }
 
+static uint8_t UI_IsPermanentItem(
+    const UI_Item *item)
+{
+    if (item == NULL)
+    {
+        return 0;
+    }
+
+    switch (item->type)
+    {
+        case UI_ITEM_INPUT:
+        case UI_ITEM_OUTPUT:
+        case UI_ITEM_LOOP:
+        case UI_ITEM_MANUAL_NODE:
+            return 1;
+
+        case UI_ITEM_AUTO_NODE:
+        default:
+            return 0;
+    }
+}
+
+static int16_t UI_FindPermanentItemAt(
+    int16_t order,
+    int16_t lane,
+    int16_t excludedIndex)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if ((int16_t)i == excludedIndex)
+        {
+            continue;
+        }
+
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order == order &&
+            uiItems[i].lane == lane)
+        {
+            return (int16_t)i;
+        }
+    }
+
+    return -1;
+}
+
+static int16_t UI_FindAutoNodeAt(
+    int16_t order,
+    int16_t lane)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].type !=
+            UI_ITEM_AUTO_NODE)
+        {
+            continue;
+        }
+
+        if (uiItems[i].order == order &&
+            uiItems[i].lane == lane)
+        {
+            return (int16_t)i;
+        }
+    }
+
+    return -1;
+}
+
+static void UI_RemoveAutoNode(
+    int16_t autoNodeIndex)
+{
+    if (autoNodeIndex < 0 ||
+        autoNodeIndex >=
+            (int16_t)UI_ITEM_COUNT)
+    {
+        return;
+    }
+
+    if (uiItems[autoNodeIndex].type !=
+        UI_ITEM_AUTO_NODE)
+    {
+        return;
+    }
+
+    /*
+     * Vorläufige Testlösung:
+     * Knoten außerhalb des sichtbaren Bereichs ablegen.
+     */
+    uiItems[autoNodeIndex].order = -100;
+    uiItems[autoNodeIndex].lane = 0;
+}
 
 static int16_t UI_GetFocusedIndex(void)
 {
@@ -754,7 +853,15 @@ static uint8_t UI_IsItemGrabbed(void)
         0;
 }
 
+uint8_t UI_IsGrabbed(void)
+{
+    return UI_IsItemGrabbed();
+}
 
+uint8_t UI_IsGrabbed(void)
+{
+    return UI_IsItemGrabbed();
+}
 
 static void UI_SetSelectedIndex(
     int16_t newIndex)
@@ -998,6 +1105,141 @@ void UI_ToggleGrab(void)
     UI_DrawFooter();
 }
 
+static void UI_MoveGrabbedHorizontal(
+    int8_t direction)
+{
+    if (direction == 0)
+    {
+        return;
+    }
+
+    int16_t grabbedIndex =
+        UI_GetFocusedIndex();
+
+    if (grabbedIndex < 0)
+    {
+        return;
+    }
+
+    if (uiItems[grabbedIndex].focus !=
+        UI_FOCUS_GRABBED)
+    {
+        return;
+    }
+
+    UI_Item *grabbedItem =
+        &uiItems[grabbedIndex];
+
+    if (!UI_IsPermanentItem(grabbedItem))
+    {
+        return;
+    }
+
+    int16_t targetOrder =
+        grabbedItem->order +
+        ((direction > 0) ? 1 : -1);
+
+    if (targetOrder < 0 ||
+        targetOrder >=
+            UI_VISIBLE_ELEMENT_COLUMNS)
+    {
+        return;
+    }
+
+    int16_t targetPermanentIndex =
+        UI_FindPermanentItemAt(
+            targetOrder,
+            grabbedItem->lane,
+            grabbedIndex
+        );
+
+    int16_t targetAutoNodeIndex =
+        UI_FindAutoNodeAt(
+            targetOrder,
+            grabbedItem->lane
+        );
+
+    int16_t oldOrder =
+        grabbedItem->order;
+
+    int16_t oldLane =
+        grabbedItem->lane;
+
+    if (targetPermanentIndex >= 0)
+    {
+        /*
+         * Zielposition ist durch ein permanentes
+         * Item belegt: Positionen tauschen.
+         */
+        int16_t targetOldOrder =
+            uiItems[targetPermanentIndex].order;
+
+        int16_t targetOldLane =
+            uiItems[targetPermanentIndex].lane;
+
+        uiItems[targetPermanentIndex].order =
+            oldOrder;
+
+        uiItems[targetPermanentIndex].lane =
+            oldLane;
+
+        grabbedItem->order =
+            targetOldOrder;
+
+        grabbedItem->lane =
+            targetOldLane;
+    }
+    else
+    {
+        /*
+         * Automatischer Knoten wird verdrängt.
+         */
+        if (targetAutoNodeIndex >= 0)
+        {
+            UI_RemoveAutoNode(
+                targetAutoNodeIndex
+            );
+        }
+
+        grabbedItem->order =
+            targetOrder;
+    }
+
+    /*
+     * Vollständiges Neuzeichnen ist für diesen
+     * ersten Strukturtest zunächst beabsichtigt.
+     *
+     * UI_Draw() berechnet die Geometrie bereits neu.
+     */
+    UI_Draw();
+}
+
+void UI_HandleEncoderStep(
+    int8_t direction)
+{
+    if (direction == 0)
+    {
+        return;
+    }
+
+    if (UI_IsGrabbed())
+    {
+        UI_MoveGrabbedHorizontal(
+            direction
+        );
+
+        return;
+    }
+
+    if (direction > 0)
+    {
+        UI_SelectNext();
+    }
+    else
+    {
+        UI_SelectPrevious();
+    }
+}
 
 static void UI_DrawLoop(const UI_Item *item, int16_t x, int16_t y)
 {
