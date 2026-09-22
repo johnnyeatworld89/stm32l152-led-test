@@ -721,13 +721,14 @@ static uint8_t UI_IsSelectable(
 }
 
 
-static int16_t UI_GetSelectedIndex(void)
+static int16_t UI_GetFocusedIndex(void)
 {
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
          i++)
     {
-        if (uiItems[i].focus == UI_FOCUS_SELECTED)
+        if (uiItems[i].focus == UI_FOCUS_SELECTED ||
+            uiItems[i].focus == UI_FOCUS_GRABBED)
         {
             return (int16_t)i;
         }
@@ -735,6 +736,24 @@ static int16_t UI_GetSelectedIndex(void)
 
     return -1;
 }
+
+static uint8_t UI_IsItemGrabbed(void)
+{
+    int16_t focusedIndex =
+        UI_GetFocusedIndex();
+
+    if (focusedIndex < 0)
+    {
+        return 0;
+    }
+
+    return
+        (uiItems[focusedIndex].focus ==
+         UI_FOCUS_GRABBED) ?
+        1 :
+        0;
+}
+``
 
 
 static void UI_SetSelectedIndex(
@@ -746,56 +765,47 @@ static void UI_SetSelectedIndex(
         return;
     }
 
-
     if (!UI_IsSelectable(
             &uiItems[newIndex]))
     {
         return;
     }
 
-
     int16_t oldIndex =
-        UI_GetSelectedIndex();
-
+        UI_GetFocusedIndex();
 
     /*
-     * Keine Änderung notwendig.
+     * Solange ein Item gegriffen ist, darf der
+     * Fokus nicht auf ein anderes Item wechseln.
      */
+    if (oldIndex >= 0 &&
+        uiItems[oldIndex].focus ==
+            UI_FOCUS_GRABBED)
+    {
+        return;
+    }
+
     if (oldIndex == newIndex)
     {
         return;
     }
 
-
     /*
-     * Bestehenden Fokuszustand entfernen.
+     * Invariante:
+     * Es darf immer nur genau ein Item ausgewählt
+     * oder gegriffen sein.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
          i++)
     {
-        if (uiItems[i].focus ==
-                UI_FOCUS_SELECTED ||
-            uiItems[i].focus ==
-                UI_FOCUS_GRABBED)
-        {
-            uiItems[i].focus =
-                UI_FOCUS_NONE;
-        }
+        uiItems[i].focus =
+            UI_FOCUS_NONE;
     }
 
-
-    /*
-     * Neues Element auswählen.
-     */
     uiItems[newIndex].focus =
         UI_FOCUS_SELECTED;
 
-
-    /*
-     * Nur die geänderten Bildschirmbereiche
-     * aktualisieren.
-     */
     UI_UpdateSelectionDisplay(
         oldIndex,
         newIndex
@@ -806,34 +816,119 @@ static void UI_SetSelectedIndex(
 
 void UI_SelectNext(void)
 {
-    int16_t currentIndex =
-        UI_GetSelectedIndex();
-
-    for (int16_t i = currentIndex + 1;
-         i < (int16_t)UI_ITEM_COUNT;
-         i++)
+    /*
+     * Solange ein Item gegriffen ist, darf der
+     * blaue Auswahlrahmen nicht weiterwandern.
+     *
+     * Später wird an dieser Stelle die
+     * Verschiebefunktion aufgerufen.
+     */
+    if (UI_IsItemGrabbed())
     {
-        if (UI_IsSelectable(&uiItems[i]))
+        return;
+    }
+
+    int16_t currentIndex =
+        UI_GetFocusedIndex();
+
+    /*
+     * Falls noch kein Item fokussiert ist,
+     * erstes auswählbares Item suchen.
+     */
+    if (currentIndex < 0)
+    {
+        for (uint16_t i = 0;
+             i < UI_ITEM_COUNT;
+             i++)
         {
-            UI_SetSelectedIndex(i);
+            if (UI_IsSelectable(
+                    &uiItems[i]))
+            {
+                UI_SetSelectedIndex(
+                    (int16_t)i
+                );
+
+                return;
+            }
+        }
+
+        return;
+    }
+
+    /*
+     * Kein Wrap-Around.
+     */
+    for (int16_t candidateIndex =
+             currentIndex + 1;
+         candidateIndex <
+             (int16_t)UI_ITEM_COUNT;
+         candidateIndex++)
+    {
+        if (UI_IsSelectable(
+                &uiItems[candidateIndex]))
+        {
+            UI_SetSelectedIndex(
+                candidateIndex
+            );
+
             return;
         }
     }
 }
+``
 
 
 void UI_SelectPrevious(void)
 {
-    int16_t currentIndex =
-        UI_GetSelectedIndex();
-
-    for (int16_t i = currentIndex - 1;
-         i >= 0;
-         i--)
+    /*
+     * Solange ein Item gegriffen ist,
+     * Auswahlbewegung blockieren.
+     */
+    if (UI_IsItemGrabbed())
     {
-        if (UI_IsSelectable(&uiItems[i]))
+        return;
+    }
+
+    int16_t currentIndex =
+        UI_GetFocusedIndex();
+
+    /*
+     * Falls noch kein Item fokussiert ist,
+     * letztes auswählbares Item suchen.
+     */
+    if (currentIndex < 0)
+    {
+        for (int16_t i =
+                 (int16_t)UI_ITEM_COUNT - 1;
+             i >= 0;
+             i--)
         {
-            UI_SetSelectedIndex(i);
+            if (UI_IsSelectable(
+                    &uiItems[i]))
+            {
+                UI_SetSelectedIndex(i);
+                return;
+            }
+        }
+
+        return;
+    }
+
+    /*
+     * Kein Wrap-Around.
+     */
+    for (int16_t candidateIndex =
+             currentIndex - 1;
+         candidateIndex >= 0;
+         candidateIndex--)
+    {
+        if (UI_IsSelectable(
+                &uiItems[candidateIndex]))
+        {
+            UI_SetSelectedIndex(
+                candidateIndex
+            );
+
             return;
         }
     }
@@ -841,31 +936,66 @@ void UI_SelectPrevious(void)
 
 void UI_ToggleGrab(void)
 {
-    int16_t currentIndex =
-        UI_GetSelectedIndex();
+    int16_t focusedIndex =
+        UI_GetFocusedIndex();
 
-    if (currentIndex < 0)
+    if (focusedIndex < 0)
     {
         return;
     }
 
-    if (uiItems[currentIndex].focus ==
+    /*
+     * Automatische Knoten können grundsätzlich
+     * nicht ausgewählt oder gegriffen werden.
+     */
+    if (!UI_IsSelectable(
+            &uiItems[focusedIndex]))
+    {
+        return;
+    }
+
+    /*
+     * Alten Fokusrahmen in der bisherigen Farbe
+     * entfernen, bevor der Zustand geändert wird.
+     */
+    UI_EraseFocusFrame(
+        focusedIndex
+    );
+
+    if (uiItems[focusedIndex].focus ==
         UI_FOCUS_SELECTED)
     {
-        uiItems[currentIndex].focus =
+        uiItems[focusedIndex].focus =
             UI_FOCUS_GRABBED;
     }
-    else if (uiItems[currentIndex].focus ==
+    else if (uiItems[focusedIndex].focus ==
              UI_FOCUS_GRABBED)
     {
-        uiItems[currentIndex].focus =
+        uiItems[focusedIndex].focus =
             UI_FOCUS_SELECTED;
     }
 
-    UI_UpdateSelectionDisplay(
-        currentIndex,
-        currentIndex
+    /*
+     * Verbindungen neu zeichnen, falls beim Löschen
+     * des äußeren Rahmens einzelne Pixel betroffen
+     * waren.
+     */
+    UI_DrawConnectionsForItem(
+        focusedIndex
     );
+
+    /*
+     * Dasselbe Item mit der neuen Fokusfarbe
+     * wieder zeichnen.
+     */
+    UI_RedrawItem(
+        focusedIndex
+    );
+
+    /*
+     * Footer auf Blau oder Pink aktualisieren.
+     */
+    UI_DrawFooter();
 }
 
 
@@ -1471,6 +1601,48 @@ static void UI_DrawFooter(void)
 
 void UI_Init(void)
 {
+    int16_t firstFocusedIndex = -1;
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].focus == UI_FOCUS_SELECTED ||
+            uiItems[i].focus == UI_FOCUS_GRABBED)
+        {
+            if (firstFocusedIndex < 0 &&
+                UI_IsSelectable(&uiItems[i]))
+            {
+                firstFocusedIndex =
+                    (int16_t)i;
+            }
+            else
+            {
+                uiItems[i].focus =
+                    UI_FOCUS_NONE;
+            }
+        }
+    }
+
+    /*
+     * Falls kein gültiges Item fokussiert ist,
+     * erstes auswählbares Item verwenden.
+     */
+    if (firstFocusedIndex < 0)
+    {
+        for (uint16_t i = 0;
+             i < UI_ITEM_COUNT;
+             i++)
+        {
+            if (UI_IsSelectable(&uiItems[i]))
+            {
+                uiItems[i].focus =
+                    UI_FOCUS_SELECTED;
+
+                break;
+            }
+        }
+    }
 }
 
 void UI_Draw(void)
