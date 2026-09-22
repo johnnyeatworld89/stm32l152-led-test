@@ -1818,7 +1818,7 @@ static uint8_t UI_ItemPositionChanged(
 }
 
 
-    ret*rn 0;
+    return 0;
 }
 
 static void UI_SavePreviousStepState(void)
