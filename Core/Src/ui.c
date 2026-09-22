@@ -190,6 +190,10 @@ static UI_ItemPositionState previousStepState[
     UI_ITEM_COUNT
 ];
 
+static UI_ItemGeometry previousStepGeometry[
+    UI_ITEM_COUNT
+];
+
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
 {
@@ -620,9 +624,83 @@ static void UI_EraseFocusFrame(
     }
 }
 
+static void UI_ClearGeometryArea(
+    const UI_ItemGeometry *geometry)
+{
+    if (geometry == NULL ||
+        !geometry->visible)
+    {
+        return;
+    }
+
+    int16_t x =
+        geometry->x -
+        UI_FOCUS_FRAME_GAP -
+        1;
+
+    int16_t y =
+        geometry->y -
+        UI_FOCUS_FRAME_GAP -
+        1;
+
+    int16_t width =
+        geometry->width +
+        (2 * UI_FOCUS_FRAME_GAP) +
+        2;
+
+    int16_t height =
+        geometry->height +
+        (2 * UI_FOCUS_FRAME_GAP) +
+        2;
+
+
+    if (x < 0)
+    {
+        width += x;
+        x = 0;
+    }
+
+    if (y < 0)
+    {
+        height += y;
+        y = 0;
+    }
+
+    if ((x + width) >
+        UI_DISPLAY_WIDTH)
+    {
+        width =
+            UI_DISPLAY_WIDTH - x;
+    }
+
+    if ((y + height) >
+        UI_FOOTER_TOP)
+    {
+        height =
+            UI_FOOTER_TOP - y;
+    }
+
+    if (width <= 0 ||
+        height <= 0)
+    {
+        return;
+    }
+
+
+    ST7735_FillRect(
+        (uint16_t)x,
+        (uint16_t)y,
+        (uint16_t)width,
+        (uint16_t)height,
+        UI_COLOR_BACKGROUND
+    );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Redraw one item                                                            */
 /* -------------------------------------------------------------------------- */
+
+
 
 static void UI_RedrawItem(int16_t itemIndex)
 {
@@ -1756,6 +1834,29 @@ void UI_ToggleGrab(void)
 /* Movement snapshots                                                         */
 /* -------------------------------------------------------------------------- */
 
+static uint8_t UI_ItemPositionChanged(
+    uint16_t itemIndex)
+{
+    if (itemIndex >= UI_ITEM_COUNT)
+    {
+        return 0;
+    }
+
+    if (!UI_IsPermanentItem(
+            &uiItems[itemIndex]))
+    {
+        return 0;
+    }
+
+    return
+        (uiItems[itemIndex].order !=
+             previousStepState[itemIndex].order ||
+         uiItems[itemIndex].lane !=
+             previousStepState[itemIndex].lane) ?
+        1 :
+        0;
+}
+
 static void UI_SavePreviousStepState(void)
 {
     for (uint16_t i = 0;
@@ -1770,8 +1871,16 @@ static void UI_SavePreviousStepState(void)
 
         previousStepState[i].focus =
             uiItems[i].focus;
+
+
+        /*
+         * Alte Bildschirmposition speichern.
+         */
+        previousStepGeometry[i] =
+            uiGeometry[i];
     }
 }
+
 
 
 static void UI_RestorePreviousStepState(void)
@@ -2056,7 +2165,7 @@ if (!UI_PermanentStructureChangedSincePreviousStep())
  * Nur bei einer tatsächlich wirksamen Änderung
  * den Bildschirm neu aufbauen.
  */
-UI_Draw();
+UI_UpdateChangedStructureDisplay();
 }
 
 void UI_HandleEncoderStep(
@@ -2584,6 +2693,45 @@ static void UI_DrawConnectionByIndex(
     );
 }
 
+static void UI_DrawConnectionsForChangedItems(void)
+{
+    for (uint16_t connectionIndex = 0;
+         connectionIndex <
+             UI_CONNECTION_COUNT;
+         connectionIndex++)
+    {
+        int16_t sourceIndex =
+            UI_FindItemIndexById(
+                uiConnections[
+                    connectionIndex
+                ].sourceId
+            );
+
+        int16_t targetIndex =
+            UI_FindItemIndexById(
+                uiConnections[
+                    connectionIndex
+                ].targetId
+            );
+
+        if (sourceIndex < 0 ||
+            targetIndex < 0)
+        {
+            continue;
+        }
+
+        if (UI_ItemPositionChanged(
+                (uint16_t)sourceIndex) ||
+            UI_ItemPositionChanged(
+                (uint16_t)targetIndex))
+        {
+            UI_DrawConnectionByIndex(
+                connectionIndex
+            );
+        }
+    }
+}
+
 static void UI_DrawConnectionsForItem(
     int16_t itemIndex)
 {
@@ -2621,6 +2769,81 @@ static void UI_DrawConnections(void)
     {
         UI_DrawConnectionByIndex(i);
     }
+}
+
+static void UI_UpdateChangedStructureDisplay(void)
+{
+    /*
+     * Zuerst alle alten Positionen der bewegten
+     * permanenten Items entfernen.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (UI_ItemPositionChanged(i))
+        {
+            UI_ClearGeometryArea(
+                &previousStepGeometry[i]
+            );
+        }
+    }
+
+
+    /*
+     * Die neue Geometrie anhand von order und lane
+     * berechnen.
+     */
+    UI_CalculateGeometry();
+
+
+    /*
+     * Auch die neuen Zielbereiche löschen.
+     *
+     * Dies entfernt dort alte Items oder Fragmente.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (UI_ItemPositionChanged(i))
+        {
+            UI_ClearGeometryArea(
+                &uiGeometry[i]
+            );
+        }
+    }
+
+
+    /*
+     * Geänderte Verbindungen zuerst zeichnen.
+     */
+    UI_DrawConnectionsForChangedItems();
+
+
+    /*
+     * Bewegte Items anschließend über den
+     * Verbindungen zeichnen.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_ItemPositionChanged(i) ||
+            !uiGeometry[i].visible)
+        {
+            continue;
+        }
+
+        UI_DrawItem(
+            &uiItems[i],
+            uiGeometry[i].x,
+            uiGeometry[i].y
+        );
+    }
+
+
+    UI_DrawFooter();
 }
 
 static const UI_Item *UI_GetFocusedItem(void)
