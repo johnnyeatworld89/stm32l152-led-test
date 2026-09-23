@@ -46,70 +46,42 @@
 
 static UI_Item uiItems[] =
 {
-    /*
-     * Input at the left edge.
-     *
-     * Initially selected so that the movement
-     * test can start directly with IN1.
-     */
     {
         .id = 1,
         .type = UI_ITEM_INPUT,
         .order = 0,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
-        .focus = UI_FOCUS_SELECTED,
+        .focus = UI_FOCUS_NONE,
         .shortName = "In1",
         .longName = "Input 1"
     },
 
-    /*
-     * Automatic node directly to the right of IN1.
-     */
-    {
-        .id = 4,
-        .type = UI_ITEM_AUTO_NODE,
-        .order = 1,
-        .lane = 0,
-        .loopStatus = UI_LOOP_STATUS_OFF,
-        .focus = UI_FOCUS_NONE,
-        .shortName = "",
-        .longName = ""
-    },
-
-    /*
-     * Manual node in the upper lane.
-     */
     {
         .id = 2,
+        .type = UI_ITEM_LOOP,
+        .order = 1,
+        .lane = 0,
+        .loopStatus =
+            UI_LOOP_STATUS_ACTIVE_CONFIRMED,
+        .focus = UI_FOCUS_SELECTED,
+        .shortName = "L01",
+        .longName = "Loop 01"
+    },
+
+    {
+        .id = 3,
         .type = UI_ITEM_MANUAL_NODE,
         .order = 2,
-        .lane = 1,
+        .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
         .shortName = "N01",
         .longName = "Node 01"
     },
 
-    /*
-     * Loop in the center lane.
-     */
     {
-        .id = 3,
-        .type = UI_ITEM_LOOP,
-        .order = 2,
-        .lane = 0,
-        .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
-        .focus = UI_FOCUS_NONE,
-        .shortName = "L01",
-        .longName = "Loop 01"
-    },
-
-    /*
-     * Output at the right edge.
-     */
-    {
-        .id = 5,
+        .id = 4,
         .type = UI_ITEM_OUTPUT,
         .order = 3,
         .lane = 0,
@@ -122,48 +94,16 @@ static UI_Item uiItems[] =
 
 
 #define UI_ITEM_COUNT (sizeof(uiItems) / sizeof(uiItems[0]))
-
-static UI_Connection uiConnections[] =
-{
-    /*
-     * Horizontal connection from IN1
-     * to the automatic node.
-     */
-    {
-        .sourceId = 1,
-        .targetId = 4
-    },
-
-    /*
-     * Split from the automatic node.
-     */
-    {
-        .sourceId = 4,
-        .targetId = 2
-    },
-
-    {
-        .sourceId = 4,
-        .targetId = 3
-    },
-
-    /*
-     * Both permanent paths lead to OUT1.
-     */
-    {
-        .sourceId = 2,
-        .targetId = 5
-    },
-
-    {
-        .sourceId = 3,
-        .targetId = 5
-    }
-};
+#define UI_MAX_CONNECTIONS 16U
 
 
-#define UI_CONNECTION_COUNT \
-    (sizeof(uiConnections) / sizeof(uiConnections[0]))
+static UI_Connection uiConnections[
+    UI_MAX_CONNECTIONS
+];
+
+
+static uint16_t uiConnectionCount = 0U;
+
 
 static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 
@@ -172,6 +112,15 @@ static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 /* -------------------------------------------------------------------------- */
 
 static void UI_DrawConnections(void);
+
+static void UI_ClearConnections(void);
+
+static uint8_t UI_AddConnection(
+    uint16_t sourceId,
+    uint16_t targetId
+);
+
+static uint8_t UI_RebuildSerialConnections(void);
 
 static void UI_DrawConnectionsForItem(
     int16_t itemIndex
@@ -850,6 +799,184 @@ static uint8_t UI_IsPermanentItem(
             return 0;
     }
 }
+
+static void UI_ClearConnections(void)
+{
+    uiConnectionCount = 0U;
+}
+
+static uint8_t UI_AddConnection(
+    uint16_t sourceId,
+    uint16_t targetId)
+{
+    /*
+     * Ungültige Selbstverbindung verhindern.
+     */
+    if (sourceId == targetId)
+    {
+        return 0;
+    }
+
+
+    /*
+     * Verbindung nicht doppelt eintragen.
+     */
+    for (uint16_t i = 0;
+         i < uiConnectionCount;
+         i++)
+    {
+        if (uiConnections[i].sourceId ==
+                sourceId &&
+            uiConnections[i].targetId ==
+                targetId)
+        {
+            return 1;
+        }
+    }
+
+
+    /*
+     * Puffergrenze prüfen.
+     */
+    if (uiConnectionCount >=
+        UI_MAX_CONNECTIONS)
+    {
+        return 0;
+    }
+
+
+    uiConnections[
+        uiConnectionCount
+    ].sourceId =
+        sourceId;
+
+    uiConnections[
+        uiConnectionCount
+    ].targetId =
+        targetId;
+
+
+    uiConnectionCount++;
+
+
+    return 1;
+}
+
+static uint8_t UI_IsSerialStructure(void)
+{
+    for (uint16_t firstIndex = 0;
+         firstIndex < UI_ITEM_COUNT;
+         firstIndex++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[firstIndex]))
+        {
+            continue;
+        }
+
+
+        if (uiItems[firstIndex].order < 0)
+        {
+            continue;
+        }
+
+
+        for (uint16_t secondIndex =
+                 firstIndex + 1;
+             secondIndex <
+                 UI_ITEM_COUNT;
+             secondIndex++)
+        {
+            if (!UI_IsPermanentItem(
+                    &uiItems[secondIndex]))
+            {
+                continue;
+            }
+
+
+            if (uiItems[secondIndex].order < 0)
+            {
+                continue;
+            }
+
+
+            /*
+             * Mehrere permanente Items in derselben
+             * order gehören erst zu Stufe 2.
+             */
+            if (uiItems[firstIndex].order ==
+                uiItems[secondIndex].order)
+            {
+                return 0;
+            }
+        }
+    }
+
+
+    return 1;
+}
+
+static uint8_t UI_RebuildSerialConnections(void)
+{
+    /*
+     * Stufe 1 unterstützt nur genau ein
+     * permanentes Item pro order.
+     */
+    if (!UI_IsSerialStructure())
+    {
+        return 0;
+    }
+
+
+    UI_ClearConnections();
+
+
+    int16_t currentIndex =
+        UI_FindFirstSelectableIndex();
+
+
+    if (currentIndex < 0)
+    {
+        return 0;
+    }
+
+
+    while (1)
+    {
+        int16_t nextIndex =
+            UI_FindNextSelectableIndex(
+                currentIndex
+            );
+
+
+        if (nextIndex < 0)
+        {
+            break;
+        }
+
+
+        if (!UI_AddConnection(
+                uiItems[currentIndex].id,
+                uiItems[nextIndex].id))
+        {
+            /*
+             * Verbindungspuffer reicht nicht aus.
+             */
+            UI_ClearConnections();
+
+            return 0;
+        }
+
+
+        currentIndex =
+            nextIndex;
+    }
+
+
+    return 1;
+}
+
+
 
 static int8_t UI_CompareItemPositions(
     const UI_Item *itemA,
@@ -2147,20 +2274,43 @@ if (!UI_PermanentStructureChangedSincePreviousStep())
 {
     UI_RestorePreviousStepState();
 
-    /*
-     * Kein UI_Draw():
-     * Auf dem Display wurde bisher noch nichts
-     * verändert.
-     */
     return;
 }
 
 
 /*
- * Nur bei einer tatsächlich wirksamen Änderung
- * den Bildschirm neu aufbauen.
+ * Verbindungsliste aus der neuen seriellen
+ * Rasterreihenfolge aufbauen.
  */
-UI_UpdateChangedStructureDisplay();
+if (!UI_RebuildSerialConnections())
+{
+    /*
+     * Neue Struktur ist für Stufe 1 nicht seriell
+     * oder der Verbindungspuffer reicht nicht aus.
+     *
+     * Vorherigen Zustand wiederherstellen.
+     */
+    UI_RestorePreviousStepState();
+
+    /*
+     * Auch die alte Verbindungsliste wieder aus
+     * dem wiederhergestellten Zustand erzeugen.
+     */
+    UI_RebuildSerialConnections();
+
+    return;
+}
+
+
+/*
+ * Für den ersten Test zunächst vollständig
+ * neu zeichnen.
+ *
+ * Dadurch prüfen wir zuerst die korrekte logische
+ * Verbindungsliste. Das lokale Redraw wird danach
+ * wieder aktiviert.
+ */
+UI_Draw();
 }
 
 void UI_HandleEncoderStep(
@@ -2613,7 +2763,7 @@ static void UI_DrawConnectionByIndex(
     uint16_t color)
 {
     if (connectionIndex >=
-        UI_CONNECTION_COUNT)
+        uiConnectionCount)
     {
         return;
     }
@@ -2704,7 +2854,7 @@ static void UI_EraseConnectionsForChangedItems(void)
      * mit der Hintergrundfarbe überzeichnet werden.
      */
     for (uint16_t connectionIndex = 0;
-         connectionIndex < UI_CONNECTION_COUNT;
+         connectionIndex < uiConnectionCount;
          connectionIndex++)
     {
         int16_t sourceIndex =
@@ -2746,7 +2896,7 @@ static void UI_DrawConnectionsForChangedItems(void)
 {
     for (uint16_t connectionIndex = 0;
          connectionIndex <
-             UI_CONNECTION_COUNT;
+             uiConnectionCount;
          connectionIndex++)
     {
         int16_t sourceIndex =
@@ -2797,7 +2947,7 @@ static void UI_DrawConnectionsForItem(
 
 
     for (uint16_t i = 0;
-         i < UI_CONNECTION_COUNT;
+         i < uiConnectionCount;
          i++)
     {
         if (uiConnections[i].sourceId ==
@@ -2817,7 +2967,7 @@ static void UI_DrawConnectionsForItem(
 static void UI_DrawConnections(void)
 {
     for (uint16_t i = 0;
-         i < UI_CONNECTION_COUNT;
+         i < uiConnectionCount;
          i++)
     {
         UI_DrawConnectionByIndex(
@@ -3032,6 +3182,16 @@ void UI_Init(void)
             }
         }
     }
+
+    if (!UI_RebuildSerialConnections())
+    {
+        /*
+         * Für diesen Test bedeutet ein Fehler:
+         * Keine Verbindung darstellen.
+         */
+        UI_ClearConnections();
+    }
+    
 }
 
 void UI_Draw(void)
