@@ -121,46 +121,18 @@ static UI_Item uiItems[] =
 #define UI_MAX_CONNECTIONS 32U
 
 
-static UI_Connection uiConnections[] =
-{
-    /*
-     * Split after IN1.
-     */
-    {
-        .sourceId = 1,
-        .targetId = 2
-    },
-    {
-        .sourceId = 1,
-        .targetId = 3
-    },
+/*
+ * Beschreibbarer Verbindungspuffer.
+ *
+ * Die aktiven Einträge werden dynamisch durch
+ * UI_RebuildColumnConnections() erzeugt.
+ */
+static UI_Connection uiConnections[
+    UI_MAX_CONNECTIONS
+];
 
-    /*
-     * Lane-preserving parallel paths.
-     */
-    {
-        .sourceId = 2,
-        .targetId = 4
-    },
-    {
-        .sourceId = 3,
-        .targetId = 5
-    },
-
-    /*
-     * Merge before OUT1.
-     */
-    {
-        .sourceId = 4,
-        .targetId = 6
-    },
-    {
-        .sourceId = 5,
-        .targetId = 6
-    }
-};
-
-
+#define UI_CONNECTION_CAPACITY \
+    (sizeof(uiConnections) / sizeof(uiConnections[0]))
 
 static uint16_t uiConnectionCount = 0U;
 
@@ -911,6 +883,12 @@ static uint8_t UI_AddConnection(
      */
     if (uiConnectionCount >=
         UI_MAX_CONNECTIONS)
+    {
+        return 0;
+    }
+
+    if (uiConnectionCount >=
+        UI_CONNECTION_CAPACITY)
     {
         return 0;
     }
