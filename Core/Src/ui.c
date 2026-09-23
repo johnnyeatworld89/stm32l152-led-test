@@ -61,7 +61,7 @@ static UI_Item uiItems[] =
         .id = 2,
         .type = UI_ITEM_LOOP,
         .order = 1,
-        .lane = 0,
+        .lane = 1,
         .loopStatus =
             UI_LOOP_STATUS_ACTIVE_CONFIRMED,
         .focus = UI_FOCUS_SELECTED,
@@ -71,19 +71,20 @@ static UI_Item uiItems[] =
 
     {
         .id = 3,
-        .type = UI_ITEM_MANUAL_NODE,
-        .order = 2,
-        .lane = 0,
-        .loopStatus = UI_LOOP_STATUS_OFF,
+        .type = UI_ITEM_LOOP,
+        .order = 1,
+        .lane = -1,
+        .loopStatus =
+            UI_LOOP_STATUS_ACTIVE_UNCONFIRMED,
         .focus = UI_FOCUS_NONE,
-        .shortName = "N01",
-        .longName = "Node 01"
+        .shortName = "L02",
+        .longName = "Loop 02"
     },
 
     {
         .id = 4,
         .type = UI_ITEM_OUTPUT,
-        .order = 3,
+        .order = 2,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -94,7 +95,7 @@ static UI_Item uiItems[] =
 
 
 #define UI_ITEM_COUNT (sizeof(uiItems) / sizeof(uiItems[0]))
-#define UI_MAX_CONNECTIONS 16U
+#define UI_MAX_CONNECTIONS 32U
 
 
 static UI_Connection uiConnections[
@@ -141,7 +142,7 @@ static uint8_t UI_AddConnection(
     uint16_t targetId
 );
 
-static uint8_t UI_RebuildSerialConnections(void);
+static uint8_t UI_RebuildColumnConnections(void);
 
 typedef struct
 {
@@ -873,50 +874,185 @@ static uint8_t UI_AddConnection(
     return 1;
 }
 
-static uint8_t UI_IsSerialStructure(void)
+static uint8_t UI_OrderContainsPermanentItem(
+    int16_t order)
 {
-    for (uint16_t firstIndex = 0;
-         firstIndex < UI_ITEM_COUNT;
-         firstIndex++)
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
     {
         if (!UI_IsPermanentItem(
-                &uiItems[firstIndex]))
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order == order)
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int16_t UI_FindNextOccupiedOrder(
+    int16_t currentOrder)
+{
+    int16_t nextOrder = -1;
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
         {
             continue;
         }
 
 
-        if (uiItems[firstIndex].order < 0)
+        if (uiItems[i].order <=
+            currentOrder)
         {
             continue;
         }
 
 
-        for (uint16_t secondIndex =
-                 firstIndex + 1;
-             secondIndex <
-                 UI_ITEM_COUNT;
-             secondIndex++)
+        if (nextOrder < 0 ||
+            uiItems[i].order <
+                nextOrder)
+        {
+            nextOrder =
+                uiItems[i].order;
+        }
+    }
+
+
+    return nextOrder;
+}
+
+static int16_t UI_FindFirstOccupiedOrder(void)
+{
+    int16_t firstOrder = -1;
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+
+        if (uiItems[i].order < 0)
+        {
+            continue;
+        }
+
+
+        if (firstOrder < 0 ||
+            uiItems[i].order <
+                firstOrder)
+        {
+            firstOrder =
+                uiItems[i].order;
+        }
+    }
+
+
+    return firstOrder;
+}
+
+static uint8_t UI_ConnectOrders(
+    int16_t sourceOrder,
+    int16_t targetOrder)
+{
+    uint8_t sourceFound = 0;
+    uint8_t targetFound = 0;
+
+
+    /*
+     * Prüfen, ob beide Spalten permanente
+     * Items enthalten.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order ==
+            sourceOrder)
+        {
+            sourceFound = 1;
+        }
+
+        if (uiItems[i].order ==
+            targetOrder)
+        {
+            targetFound = 1;
+        }
+    }
+
+
+    if (!sourceFound ||
+        !targetFound)
+    {
+        return 0;
+    }
+
+
+    /*
+     * Jedes permanente Item der Quellspalte wird
+     * mit jedem permanenten Item der Zielspalte
+     * verbunden.
+     */
+    for (uint16_t sourceIndex = 0;
+         sourceIndex < UI_ITEM_COUNT;
+         sourceIndex++)
+    {
+        if (!UI_IsPermanentItem(
+                &uiItems[sourceIndex]))
+        {
+            continue;
+        }
+
+        if (uiItems[sourceIndex].order !=
+            sourceOrder)
+        {
+            continue;
+        }
+
+
+        for (uint16_t targetIndex = 0;
+             targetIndex < UI_ITEM_COUNT;
+             targetIndex++)
         {
             if (!UI_IsPermanentItem(
-                    &uiItems[secondIndex]))
+                    &uiItems[targetIndex]))
+            {
+                continue;
+            }
+
+            if (uiItems[targetIndex].order !=
+                targetOrder)
             {
                 continue;
             }
 
 
-            if (uiItems[secondIndex].order < 0)
-            {
-                continue;
-            }
-
-
-            /*
-             * Mehrere permanente Items in derselben
-             * order gehören erst zu Stufe 2.
-             */
-            if (uiItems[firstIndex].order ==
-                uiItems[secondIndex].order)
+            if (!UI_AddConnection(
+                    uiItems[sourceIndex].id,
+                    uiItems[targetIndex].id))
             {
                 return 0;
             }
@@ -927,26 +1063,16 @@ static uint8_t UI_IsSerialStructure(void)
     return 1;
 }
 
-static uint8_t UI_RebuildSerialConnections(void)
+static uint8_t UI_RebuildColumnConnections(void)
 {
-    /*
-     * Stufe 1 unterstützt nur genau ein
-     * permanentes Item pro order.
-     */
-    if (!UI_IsSerialStructure())
-    {
-        return 0;
-    }
-
-
     UI_ClearConnections();
 
 
-    int16_t currentIndex =
-        UI_FindFirstSelectableIndex();
+    int16_t sourceOrder =
+        UI_FindFirstOccupiedOrder();
 
 
-    if (currentIndex < 0)
+    if (sourceOrder < 0)
     {
         return 0;
     }
@@ -954,33 +1080,38 @@ static uint8_t UI_RebuildSerialConnections(void)
 
     while (1)
     {
-        int16_t nextIndex =
-            UI_FindNextSelectableIndex(
-                currentIndex
+        int16_t targetOrder =
+            UI_FindNextOccupiedOrder(
+                sourceOrder
             );
 
 
-        if (nextIndex < 0)
+        /*
+         * Keine weitere belegte Spalte:
+         * Verbindungsaufbau ist abgeschlossen.
+         */
+        if (targetOrder < 0)
         {
             break;
         }
 
 
-        if (!UI_AddConnection(
-                uiItems[currentIndex].id,
-                uiItems[nextIndex].id))
+        /*
+         * Alle Items der Quellspalte mit allen
+         * Items der nächsten Zielspalte verbinden.
+         */
+        if (!UI_ConnectOrders(
+                sourceOrder,
+                targetOrder))
         {
-            /*
-             * Verbindungspuffer reicht nicht aus.
-             */
             UI_ClearConnections();
 
             return 0;
         }
 
 
-        currentIndex =
-            nextIndex;
+        sourceOrder =
+            targetOrder;
     }
 
 
@@ -2319,7 +2450,7 @@ if (!UI_PermanentStructureChangedSincePreviousStep())
  * Verbindungsliste aus der neuen seriellen
  * Rasterreihenfolge aufbauen.
  */
-if (!UI_RebuildSerialConnections())
+if (!UI_RebuildColumnConnections())
 {
     /*
      * Neue Struktur ist für Stufe 1 nicht seriell
@@ -2333,7 +2464,7 @@ if (!UI_RebuildSerialConnections())
      * Auch die alte Verbindungsliste wieder aus
      * dem wiederhergestellten Zustand erzeugen.
      */
-    UI_RebuildSerialConnections();
+    UI_RebuildColumnConnections();
 
     return;
 }
@@ -3334,7 +3465,7 @@ void UI_Init(void)
         }
     }
 
-    if (!UI_RebuildSerialConnections())
+    if (!UI_RebuildColumnConnections())
     {
         /*
          * Für diesen Test bedeutet ein Fehler:
