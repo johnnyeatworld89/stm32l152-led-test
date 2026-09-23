@@ -46,43 +46,30 @@
 
 static UI_Item uiItems[] =
 {
+    /*
+     * Input at the left edge.
+     *
+     * Initially selected so that the movement
+     * test can start directly with IN1.
+     */
     {
         .id = 1,
         .type = UI_ITEM_INPUT,
         .order = 0,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
-        .focus = UI_FOCUS_NONE,
+        .focus = UI_FOCUS_SELECTED,
         .shortName = "In1",
         .longName = "Input 1"
     },
 
-    {
-        .id = 2,
-        .type = UI_ITEM_MANUAL_NODE,
-        .order = 1,
-        .lane = 1,
-        .loopStatus = UI_LOOP_STATUS_OFF,
-        .focus = UI_FOCUS_SELECTED,
-        .shortName = "N01",
-        .longName = "Node 01"
-    },
-
-    {
-        .id = 3,
-        .type = UI_ITEM_LOOP,
-        .order = 1,
-        .lane = 0,
-        .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
-        .focus = UI_FOCUS_NONE,
-        .shortName = "L01",
-        .longName = "Loop 01"
-    },
-
+    /*
+     * Automatic node directly to the right of IN1.
+     */
     {
         .id = 4,
         .type = UI_ITEM_AUTO_NODE,
-        .order = 2,
+        .order = 1,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -90,6 +77,37 @@ static UI_Item uiItems[] =
         .longName = ""
     },
 
+    /*
+     * Manual node in the upper lane.
+     */
+    {
+        .id = 2,
+        .type = UI_ITEM_MANUAL_NODE,
+        .order = 2,
+        .lane = 1,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "N01",
+        .longName = "Node 01"
+    },
+
+    /*
+     * Loop in the center lane.
+     */
+    {
+        .id = 3,
+        .type = UI_ITEM_LOOP,
+        .order = 2,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_ACTIVE_CONFIRMED,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L01",
+        .longName = "Loop 01"
+    },
+
+    /*
+     * Output at the right edge.
+     */
     {
         .id = 5,
         .type = UI_ITEM_OUTPUT,
@@ -108,39 +126,37 @@ static UI_Item uiItems[] =
 static UI_Connection uiConnections[] =
 {
     /*
-     * IN1 supplies the manual node and L01.
+     * Horizontal connection from IN1
+     * to the automatic node.
      */
     {
         .sourceId = 1,
+        .targetId = 4
+    },
+
+    /*
+     * Split from the automatic node.
+     */
+    {
+        .sourceId = 4,
         .targetId = 2
     },
 
     {
-        .sourceId = 1,
+        .sourceId = 4,
         .targetId = 3
     },
 
-
     /*
-     * One diagonal and one horizontal arrow
-     * enter the automatic node.
+     * Both permanent paths lead to OUT1.
      */
     {
         .sourceId = 2,
-        .targetId = 4
+        .targetId = 5
     },
 
     {
         .sourceId = 3,
-        .targetId = 4
-    },
-
-
-    /*
-     * Horizontal output from automatic node.
-     */
-    {
-        .sourceId = 4,
         .targetId = 5
     }
 };
