@@ -166,6 +166,12 @@ static UI_ItemGeometry previousStepGeometry[
     UI_ITEM_COUNT
 ];
 
+static UI_Connection previousStepConnections[
+    UI_MAX_CONNECTIONS
+];
+
+static uint16_t previousStepConnectionCount = 0U;
+
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
 {
@@ -1968,6 +1974,10 @@ static uint8_t UI_ItemPositionChanged(
 
 static void UI_SavePreviousStepState(void)
 {
+    /*
+     * Itemzustände und alte Bildschirmpositionen
+     * sichern.
+     */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
          i++)
@@ -1981,12 +1991,34 @@ static void UI_SavePreviousStepState(void)
         previousStepState[i].focus =
             uiItems[i].focus;
 
-
-        /*
-         * Alte Bildschirmposition speichern.
-         */
         previousStepGeometry[i] =
             uiGeometry[i];
+    }
+
+
+    /*
+     * Aktuelle logische Verbindungsliste sichern.
+     *
+     * Dieser Snapshot wird später verwendet, um
+     * die alten Pfeile schwarz zu überzeichnen.
+     */
+    previousStepConnectionCount =
+        uiConnectionCount;
+
+    if (previousStepConnectionCount >
+        UI_MAX_CONNECTIONS)
+    {
+        previousStepConnectionCount =
+            UI_MAX_CONNECTIONS;
+    }
+
+
+    for (uint16_t i = 0;
+         i < previousStepConnectionCount;
+         i++)
+    {
+        previousStepConnections[i] =
+            uiConnections[i];
     }
 }
 
@@ -2308,14 +2340,10 @@ if (!UI_RebuildSerialConnections())
 
 
 /*
- * Für den ersten Test zunächst vollständig
- * neu zeichnen.
- *
- * Dadurch prüfen wir zuerst die korrekte logische
- * Verbindungsliste. Das lokale Redraw wird danach
- * wieder aktiviert.
+ * Alte Verbindungen aus dem Snapshot entfernen
+ * und die neue Struktur lokal darstellen.
  */
-UI_Draw();
+UI_UpdateChangedStructureDisplay();
 }
 
 void UI_HandleEncoderStep(
@@ -2763,6 +2791,147 @@ static void UI_DrawDirectConnection(
                     color);
 }
 
+static void UI_DrawConnectionFromState(
+    const UI_Connection *connection,
+    const UI_ItemGeometry *geometryState,
+    uint16_t color)
+{
+    if (connection == NULL ||
+        geometryState == NULL)
+    {
+        return;
+    }
+
+
+    int16_t sourceIndex =
+        UI_FindItemIndexById(
+            connection->sourceId
+        );
+
+    int16_t targetIndex =
+        UI_FindItemIndexById(
+            connection->targetId
+        );
+
+
+    if (sourceIndex < 0 ||
+        targetIndex < 0)
+    {
+        return;
+    }
+
+
+    const UI_ItemGeometry *sourceGeometry =
+        &geometryState[sourceIndex];
+
+    const UI_ItemGeometry *targetGeometry =
+        &geometryState[targetIndex];
+
+
+    /*
+     * Nur Verbindungen zeichnen, deren Quelle und
+     * Ziel im jeweiligen Geometriezustand sichtbar
+     * waren.
+     */
+    if (!sourceGeometry->visible ||
+        !targetGeometry->visible)
+    {
+        return;
+    }
+
+
+    const UI_Item *sourceItem =
+        &uiItems[sourceIndex];
+
+    const UI_Item *targetItem =
+        &uiItems[targetIndex];
+
+
+    int16_t sourceCenterY =
+        sourceGeometry->y +
+        (sourceGeometry->height / 2);
+
+    int16_t targetCenterY =
+        targetGeometry->y +
+        (targetGeometry->height / 2);
+
+
+    UI_ConnectionPoint sourcePoint =
+        UI_GetSourceConnectionPoint(
+            sourceGeometry,
+            sourceItem,
+            targetCenterY
+        );
+
+    UI_ConnectionPoint targetPoint =
+        UI_GetTargetConnectionPoint(
+            targetGeometry,
+            targetItem,
+            sourceCenterY
+        );
+
+
+    UI_DrawDirectConnection(
+        sourcePoint.x,
+        sourcePoint.y,
+        targetPoint.x,
+        targetPoint.y,
+        color
+    );
+}
+
+static void UI_ErasePreviousConnections(void)
+{
+    /*
+     * Alte Pfeile exakt an ihren alten Positionen
+     * mit der Hintergrundfarbe überzeichnen.
+     */
+    for (uint16_t i = 0;
+         i < previousStepConnectionCount;
+         i++)
+    {
+        UI_DrawConnectionFromState(
+            &previousStepConnections[i],
+            previousStepGeometry,
+            UI_COLOR_BACKGROUND
+        );
+    }
+}
+
+static void UI_DrawCurrentConnections(void)
+{
+    for (uint16_t i = 0;
+         i < uiConnectionCount;
+         i++)
+    {
+        UI_DrawConnectionFromState(
+            &uiConnections[i],
+            uiGeometry,
+            UI_COLOR_CONNECTION
+        );
+    }
+}
+
+static void UI_RedrawAllVisibleItems(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!uiGeometry[i].visible)
+        {
+            continue;
+        }
+
+
+        UI_DrawItem(
+            &uiItems[i],
+            uiGeometry[i].x,
+            uiGeometry[i].y
+        );
+    }
+}
+
 static void UI_DrawConnectionByIndex(
     uint16_t connectionIndex,
     uint16_t color)
@@ -2985,18 +3154,15 @@ static void UI_DrawConnections(void)
 static void UI_UpdateChangedStructureDisplay(void)
 {
     /*
-     * uiGeometry enthält hier noch die alten
-     * Bildschirmpositionen.
-     *
-     * Zuerst alte Verbindungen gezielt schwarz
-     * überzeichnen.
+     * 1. Alte Verbindungen anhand der alten
+     *    Verbindungsliste und Geometrie entfernen.
      */
-    UI_EraseConnectionsForChangedItems();
+    UI_ErasePreviousConnections();
 
 
     /*
-     * Alte Itempositionen einschließlich Rahmen
-     * vollständig löschen.
+     * 2. Alte Positionen bewegter oder entfernter
+     *    Items löschen.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
@@ -3012,17 +3178,16 @@ static void UI_UpdateChangedStructureDisplay(void)
 
 
     /*
-     * Neue Bildschirmpositionen berechnen.
+     * 3. Neue Bildschirmgeometrie berechnen.
      */
     UI_CalculateGeometry();
 
 
     /*
-     * Neue Zielbereiche säubern.
+     * 4. Neue Zielbereiche säubern.
      *
-     * Das ist insbesondere beim Tausch zweier Items
-     * wichtig, weil dort noch die alte Darstellung
-     * des jeweils anderen Items stehen kann.
+     *    Bei einem Tausch steht dort eventuell noch
+     *    die alte Darstellung des anderen Items.
      */
     for (uint16_t i = 0;
          i < UI_ITEM_COUNT;
@@ -3038,43 +3203,24 @@ static void UI_UpdateChangedStructureDisplay(void)
 
 
     /*
-     * Neue Verbindungen in Weiß zeichnen.
+     * 5. Neue logische Verbindungen anhand der
+     *    neuen Geometrie zeichnen.
      */
-    UI_DrawConnectionsForChangedItems();
-
-/*
- * Unveränderte Verbindungen an möglichen
- * Kreuzungspunkten wiederherstellen.
- *
- * Das ist weiterhin deutlich schneller als ein
- * kompletter Bildschirmaufbau, weil keine großen
- * Flächen oder Texte neu gezeichnet werden.
- */
-UI_DrawConnections();
-    /*
-     * Bewegte Items über den Verbindungen zeichnen.
-     */
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
-    {
-        if (!UI_ItemPositionChanged(i) ||
-            !uiGeometry[i].visible)
-        {
-            continue;
-        }
-
-        UI_DrawItem(
-            &uiItems[i],
-            uiGeometry[i].x,
-            uiGeometry[i].y
-        );
-    }
+    UI_DrawCurrentConnections();
 
 
     /*
-     * Langname bleibt unter dem gegriffenen Item
-     * zentriert.
+     * 6. Alle sichtbaren Items über den
+     *    Verbindungslinien wiederherstellen.
+     *
+     *    Dadurch bleiben Rahmen, Kreise und
+     *    Anschlusskanten vollständig erhalten.
+     */
+    UI_RedrawAllVisibleItems();
+
+
+    /*
+     * 7. Footer aktualisieren.
      */
     UI_DrawFooter();
 }
