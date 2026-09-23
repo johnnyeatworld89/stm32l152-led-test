@@ -113,14 +113,6 @@ static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
 
 static void UI_DrawConnections(void);
 
-static void UI_ClearConnections(void);
-
-static uint8_t UI_AddConnection(
-    uint16_t sourceId,
-    uint16_t targetId
-);
-
-static uint8_t UI_RebuildSerialConnections(void);
 
 static void UI_DrawConnectionsForItem(
     int16_t itemIndex
@@ -136,7 +128,20 @@ static void UI_DrawItem(
 
 static void UI_DrawFooter(void);
 
+static int16_t UI_FindFirstSelectableIndex(void);
 
+static int16_t UI_FindNextSelectableIndex(
+    int16_t currentIndex
+);
+
+static void UI_ClearConnections(void);
+
+static uint8_t UI_AddConnection(
+    uint16_t sourceId,
+    uint16_t targetId
+);
+
+static uint8_t UI_RebuildSerialConnections(void);
 
 typedef struct
 {
