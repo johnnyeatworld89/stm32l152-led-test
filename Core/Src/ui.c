@@ -98,9 +98,45 @@ static UI_Item uiItems[] =
 #define UI_MAX_CONNECTIONS 32U
 
 
-static UI_Connection uiConnections[
-    UI_MAX_CONNECTIONS
-];
+static UI_Connection uiConnections[] =
+{
+    /*
+     * Split after IN1.
+     */
+    {
+        .sourceId = 1,
+        .targetId = 2
+    },
+    {
+        .sourceId = 1,
+        .targetId = 3
+    },
+
+    /*
+     * Lane-preserving parallel paths.
+     */
+    {
+        .sourceId = 2,
+        .targetId = 4
+    },
+    {
+        .sourceId = 3,
+        .targetId = 5
+    },
+
+    /*
+     * Merge before OUT1.
+     */
+    {
+        .sourceId = 4,
+        .targetId = 6
+    },
+    {
+        .sourceId = 5,
+        .targetId = 6
+    }
+};
+
 
 
 static uint16_t uiConnectionCount = 0U;
