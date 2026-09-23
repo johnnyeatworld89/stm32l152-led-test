@@ -83,8 +83,31 @@ static UI_Item uiItems[] =
 
     {
         .id = 4,
-        .type = UI_ITEM_OUTPUT,
+        .type = UI_ITEM_LOOP,
         .order = 2,
+        .lane = 1,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L03",
+        .longName = "Loop 03"
+    },
+
+    {
+        .id = 5,
+        .type = UI_ITEM_LOOP,
+        .order = 2,
+        .lane = -1,
+        .loopStatus =
+            UI_LOOP_STATUS_ACTIVE_CONFIRMED,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L04",
+        .longName = "Loop 04"
+    },
+
+    {
+        .id = 6,
+        .type = UI_ITEM_OUTPUT,
+        .order = 3,
         .lane = 0,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
