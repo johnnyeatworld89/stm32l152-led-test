@@ -175,7 +175,7 @@ static uint8_t UI_AddConnection(
 
 static int8_t UI_CompareItemPositions(
     const UI_Item *itemA,
-    const UI_Item *ite*B
+    const UI_Item *itemB
 );
 
 static int16_t UI_FindValidOutputTargetAt(
