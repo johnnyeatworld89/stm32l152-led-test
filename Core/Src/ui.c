@@ -73,7 +73,7 @@ static UI_Item uiItems[] =
         .id = 3,
         .type = UI_ITEM_LOOP,
         .order = 1,
-        .lane = -1,
+        .lane = 0,
         .loopStatus =
             UI_LOOP_STATUS_ACTIVE_UNCONFIRMED,
         .focus = UI_FOCUS_NONE,
@@ -96,7 +96,7 @@ static UI_Item uiItems[] =
         .id = 5,
         .type = UI_ITEM_LOOP,
         .order = 2,
-        .lane = -1,
+        .lane = 0,
         .loopStatus =
             UI_LOOP_STATUS_ACTIVE_CONFIRMED,
         .focus = UI_FOCUS_NONE,
