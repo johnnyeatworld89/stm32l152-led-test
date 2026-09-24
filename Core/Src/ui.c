@@ -113,7 +113,7 @@ static UI_Item uiItems[] =
         .focus = UI_FOCUS_NONE,
         .shortName = "Out1",
         .longName = "Output 1"
-    }
+    },
 
 {
         .id = 7,
@@ -124,7 +124,7 @@ static UI_Item uiItems[] =
         .focus = UI_FOCUS_NONE,
         .shortName = "L05",
         .longName = "LOOP 5"
-}
+},
 
 
 {
