@@ -141,7 +141,7 @@ static UI_Item uiItems[] =
 
 
 #define UI_ITEM_COUNT (sizeof(uiItems) / sizeof(uiItems[0]))
-#define UI_MAX_CONNECTIONS 32U
+#define UI_MAX_CONNECTIONS 64U
 
 
 /*
