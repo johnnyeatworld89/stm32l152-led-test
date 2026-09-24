@@ -125,7 +125,7 @@ static UI_Item uiItems[] =
  * Beschreibbarer Verbindungspuffer.
  *
  * Die aktiven Einträge werden dynamisch durch
- * UI_RebuildColumnConnections() erzeugt.
+ * UI_RebuildCalculatedConnections() erzeugt.
  */
 static UI_Connection uiConnections[
     UI_MAX_CONNECTIONS
@@ -173,7 +173,7 @@ static uint8_t UI_AddConnection(
     uint16_t targetId
 );
 
-static uint8_t UI_RebuildColumnConnections(void);
+static uint8_t UI_RebuildCalculatedConnections(void);
 
 typedef struct
 {
@@ -911,245 +911,502 @@ static uint8_t UI_AddConnection(
     return 1;
 }
 
-static uint8_t UI_OrderContainsPermanentItem(
-    int16_t order)
+static uint8_t UI_IsValidOutputTarget(
+    const UI_Item *item)
 {
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
-    {
-        if (!UI_IsPermanentItem(
-                &uiItems[i]))
-        {
-            continue;
-        }
-
-        if (uiItems[i].order == order)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-static int16_t UI_FindNextOccupiedOrder(
-    int16_t currentOrder)
-{
-    int16_t nextOrder = -1;
-
-
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
-    {
-        if (!UI_IsPermanentItem(
-                &uiItems[i]))
-        {
-            continue;
-        }
-
-
-        if (uiItems[i].order <=
-            currentOrder)
-        {
-            continue;
-        }
-
-
-        if (nextOrder < 0 ||
-            uiItems[i].order <
-                nextOrder)
-        {
-            nextOrder =
-                uiItems[i].order;
-        }
-    }
-
-
-    return nextOrder;
-}
-
-static int16_t UI_FindFirstOccupiedOrder(void)
-{
-    int16_t firstOrder = -1;
-
-
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
-    {
-        if (!UI_IsPermanentItem(
-                &uiItems[i]))
-        {
-            continue;
-        }
-
-
-        if (uiItems[i].order < 0)
-        {
-            continue;
-        }
-
-
-        if (firstOrder < 0 ||
-            uiItems[i].order <
-                firstOrder)
-        {
-            firstOrder =
-                uiItems[i].order;
-        }
-    }
-
-
-    return firstOrder;
-}
-
-static uint8_t UI_ConnectOrders(
-    int16_t sourceOrder,
-    int16_t targetOrder)
-{
-    uint8_t sourceFound = 0;
-    uint8_t targetFound = 0;
-
-
-    /*
-     * Prüfen, ob beide Spalten permanente
-     * Items enthalten.
-     */
-    for (uint16_t i = 0;
-         i < UI_ITEM_COUNT;
-         i++)
-    {
-        if (!UI_IsPermanentItem(
-                &uiItems[i]))
-        {
-            continue;
-        }
-
-        if (uiItems[i].order ==
-            sourceOrder)
-        {
-            sourceFound = 1;
-        }
-
-        if (uiItems[i].order ==
-            targetOrder)
-        {
-            targetFound = 1;
-        }
-    }
-
-
-    if (!sourceFound ||
-        !targetFound)
+    if (item == NULL)
     {
         return 0;
     }
 
 
     /*
-     * Jedes permanente Item der Quellspalte wird
-     * mit jedem permanenten Item der Zielspalte
-     * verbunden.
+     * Ein Pfeil darf niemals an einem Input enden.
      */
-    for (uint16_t sourceIndex = 0;
-         sourceIndex < UI_ITEM_COUNT;
-         sourceIndex++)
+    if (item->type == UI_ITEM_INPUT)
     {
-        if (!UI_IsPermanentItem(
-                &uiItems[sourceIndex]))
+        return 0;
+    }
+
+
+    /*
+     * Permanente Items sind gültige Ziele.
+     *
+     * Automatische Knoten werden später ebenfalls
+     * gültige Ziele. Momentan existieren nach einer
+     * Neuberechnung jedoch keine Auto-Knoten.
+     */
+    if (UI_IsPermanentItem(item))
+    {
+        return 1;
+    }
+
+
+    if (item->type == UI_ITEM_AUTO_NODE &&
+        item->order >= 0)
+    {
+        return 1;
+    }
+
+
+    return 0;
+}
+
+static uint8_t UI_IsValidInputSource(
+    const UI_Item *item)
+{
+    if (item == NULL)
+    {
+        return 0;
+    }
+
+
+    /*
+     * Ein Pfeil darf niemals an einem Output
+     * beginnen.
+     */
+    if (item->type == UI_ITEM_OUTPUT)
+    {
+        return 0;
+    }
+
+
+    if (UI_IsPermanentItem(item))
+    {
+        return 1;
+    }
+
+
+    if (item->type == UI_ITEM_AUTO_NODE &&
+        item->order >= 0)
+    {
+        return 1;
+    }
+
+
+    return 0;
+}
+
+static int16_t UI_FindValidOutputTargetAt(
+    int16_t order,
+    int16_t lane)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsValidOutputTarget(
+                &uiItems[i]))
         {
             continue;
         }
 
-        if (uiItems[sourceIndex].order !=
-            sourceOrder)
+
+        if (uiItems[i].order == order &&
+            uiItems[i].lane == lane)
+        {
+            return (int16_t)i;
+        }
+    }
+
+
+    return -1;
+}
+
+static uint8_t UI_HasIncomingConnection(
+    uint16_t itemId)
+{
+    for (uint16_t i = 0;
+         i < uiConnectionCount;
+         i++)
+    {
+        if (uiConnections[i].targetId ==
+            itemId)
+        {
+            return 1;
+        }
+    }
+
+
+    return 0;
+}
+
+static uint8_t UI_CalculateOutputForItem(
+    uint16_t sourceIndex)
+{
+    if (sourceIndex >= UI_ITEM_COUNT)
+    {
+        return 0;
+    }
+
+
+    const UI_Item *sourceItem =
+        &uiItems[sourceIndex];
+
+
+    /*
+     * OUT besitzt keinen Ausgang.
+     */
+    if (sourceItem->type == UI_ITEM_OUTPUT)
+    {
+        return 1;
+    }
+
+
+    /*
+     * Nur permanente Items und existierende
+     * automatische Knoten besitzen berechenbare
+     * Ausgänge.
+     */
+    if (!UI_IsPermanentItem(sourceItem) &&
+        sourceItem->type != UI_ITEM_AUTO_NODE)
+    {
+        return 1;
+    }
+
+
+    if (sourceItem->order < 0)
+    {
+        return 1;
+    }
+
+
+    int16_t targetOrder =
+        sourceItem->order + 1;
+
+
+    /*
+     * Priorität 1:
+     * Ziel in derselben Lane.
+     */
+    int16_t sameLaneTargetIndex =
+        UI_FindValidOutputTargetAt(
+            targetOrder,
+            sourceItem->lane
+        );
+
+
+    if (sameLaneTargetIndex >= 0)
+    {
+        return UI_AddConnection(
+            sourceItem->id,
+            uiItems[
+                sameLaneTargetIndex
+            ].id
+        );
+    }
+
+
+    /*
+     * Priorität 2:
+     * Beide direkt angrenzenden Lanes prüfen.
+     */
+    int16_t upperTargetIndex =
+        UI_FindValidOutputTargetAt(
+            targetOrder,
+            sourceItem->lane + 1
+        );
+
+    int16_t lowerTargetIndex =
+        UI_FindValidOutputTargetAt(
+            targetOrder,
+            sourceItem->lane - 1
+        );
+
+
+    if (upperTargetIndex >= 0)
+    {
+        if (!UI_AddConnection(
+                sourceItem->id,
+                uiItems[
+                    upperTargetIndex
+                ].id))
+        {
+            return 0;
+        }
+    }
+
+
+    if (lowerTargetIndex >= 0)
+    {
+        if (!UI_AddConnection(
+                sourceItem->id,
+                uiItems[
+                    lowerTargetIndex
+                ].id))
+        {
+            return 0;
+        }
+    }
+
+
+    /*
+     * Kein Ziel gefunden:
+     *
+     * In der endgültigen Implementierung würde
+     * jetzt gegebenenfalls eine automatische
+     * Knotenkette erzeugt.
+     *
+     * In dieser Stufe wird kein Pfeil erzeugt.
+     */
+    return 1;
+}
+
+static uint8_t UI_CalculateMissingInputForItem(
+    uint16_t targetIndex)
+{
+    if (targetIndex >= UI_ITEM_COUNT)
+    {
+        return 0;
+    }
+
+
+    const UI_Item *targetItem =
+        &uiItems[targetIndex];
+
+
+    /*
+     * IN besitzt keinen Eingang.
+     */
+    if (targetItem->type == UI_ITEM_INPUT)
+    {
+        return 1;
+    }
+
+
+    if (!UI_IsPermanentItem(targetItem) &&
+        targetItem->type != UI_ITEM_AUTO_NODE)
+    {
+        return 1;
+    }
+
+
+    if (targetItem->order < 0)
+    {
+        return 1;
+    }
+
+
+    /*
+     * Eingangsphase nur ausführen, wenn noch
+     * überhaupt kein Pfeil am Eingang anliegt.
+     */
+    if (UI_HasIncomingConnection(
+            targetItem->id))
+    {
+        return 1;
+    }
+
+
+    int16_t sourceOrder =
+        targetItem->order - 1;
+
+
+    if (sourceOrder < 0)
+    {
+        /*
+         * Keine linke Spalte vorhanden.
+         *
+         * Ein automatischer Knoten wird in dieser
+         * Entwicklungsstufe noch nicht erzeugt.
+         */
+        return 1;
+    }
+
+
+    /*
+     * Laut Eingangsregel werden ausschließlich
+     * direkt angrenzende Lanes geprüft.
+     *
+     * Die gleiche Lane wird hier nicht geprüft.
+     * Eine entsprechende direkte Verbindung wäre
+     * bereits in der Ausgangsphase entstanden.
+     */
+    int16_t upperSourceIndex =
+        UI_FindValidInputSourceAt(
+            sourceOrder,
+            targetItem->lane + 1
+        );
+
+    int16_t lowerSourceIndex =
+        UI_FindValidInputSourceAt(
+            sourceOrder,
+            targetItem->lane - 1
+        );
+
+
+    if (upperSourceIndex >= 0)
+    {
+        if (!UI_AddConnection(
+                uiItems[
+                    upperSourceIndex
+                ].id,
+                targetItem->id))
+        {
+            return 0;
+        }
+    }
+
+
+    if (lowerSourceIndex >= 0)
+    {
+        if (!UI_AddConnection(
+                uiItems[
+                    lowerSourceIndex
+                ].id,
+                targetItem->id))
+        {
+            return 0;
+        }
+    }
+
+
+    /*
+     * Keine Quelle gefunden:
+     *
+     * Später wird hier gegebenenfalls eine
+     * automatische Knotenkette erzeugt.
+     */
+    return 1;
+}
+
+static int16_t UI_FindNextRoutingItemIndex(
+    int16_t previousIndex)
+{
+    int16_t bestIndex = -1;
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        const UI_Item *candidate =
+            &uiItems[i];
+
+
+        if (!UI_IsPermanentItem(candidate) &&
+            candidate->type !=
+                UI_ITEM_AUTO_NODE)
         {
             continue;
         }
 
 
-        for (uint16_t targetIndex = 0;
-             targetIndex < UI_ITEM_COUNT;
-             targetIndex++)
+        if (candidate->order < 0)
         {
-            if (!UI_IsPermanentItem(
-                    &uiItems[targetIndex]))
+            continue;
+        }
+
+
+        if (previousIndex >= 0)
+        {
+            if (UI_CompareItemPositions(
+                    candidate,
+                    &uiItems[
+                        previousIndex
+                    ]) <= 0)
             {
                 continue;
             }
-
-            if (uiItems[targetIndex].order !=
-                targetOrder)
-            {
-                continue;
-            }
+        }
 
 
-            if (!UI_AddConnection(
-                    uiItems[sourceIndex].id,
-                    uiItems[targetIndex].id))
-            {
-                return 0;
-            }
+        if (bestIndex < 0 ||
+            UI_CompareItemPositions(
+                candidate,
+                &uiItems[
+                    bestIndex
+                ]) < 0)
+        {
+            bestIndex =
+                (int16_t)i;
+        }
+    }
+
+
+    return bestIndex;
+}
+
+
+    return nextOrder;
+}
+
+
+static uint8_t UI_RebuildCalculatedConnections(void)
+{
+    UI_ClearConnections();
+
+
+    /*
+     * Phase 1:
+     * Ausgänge aller permanenten Items und
+     * vorhandenen automatischen Knoten von links
+     * nach rechts berechnen.
+     */
+    int16_t currentIndex = -1;
+
+
+    while (1)
+    {
+        currentIndex =
+            UI_FindNextRoutingItemIndex(
+                currentIndex
+            );
+
+
+        if (currentIndex < 0)
+        {
+            break;
+        }
+
+
+        if (!UI_CalculateOutputForItem(
+                (uint16_t)currentIndex))
+        {
+            UI_ClearConnections();
+
+            return 0;
+        }
+    }
+
+
+    /*
+     * Phase 2:
+     * Fehlende Eingänge ergänzen.
+     *
+     * Die Berechnung erfolgt ebenfalls von links
+     * nach rechts. Items mit bereits mindestens
+     * einem Eingang werden übersprungen.
+     */
+    currentIndex = -1;
+
+
+    while (1)
+    {
+        currentIndex =
+            UI_FindNextRoutingItemIndex(
+                currentIndex
+            );
+
+
+        if (currentIndex < 0)
+        {
+            break;
+        }
+
+
+        if (!UI_CalculateMissingInputForItem(
+                (uint16_t)currentIndex))
+        {
+            UI_ClearConnections();
+
+            return 0;
         }
     }
 
 
     return 1;
 }
-
-static uint8_t UI_RebuildColumnConnections(void)
-{
-    UI_ClearConnections();
-
-
-    int16_t sourceOrder =
-        UI_FindFirstOccupiedOrder();
-
-
-    if (sourceOrder < 0)
-    {
-        return 0;
-    }
-
-
-    while (1)
-    {
-        int16_t targetOrder =
-            UI_FindNextOccupiedOrder(
-                sourceOrder
-            );
-
-
-        /*
-         * Keine weitere belegte Spalte:
-         * Verbindungsaufbau ist abgeschlossen.
-         */
-        if (targetOrder < 0)
-        {
-            break;
-        }
-
-
-        /*
-         * Alle Items der Quellspalte mit allen
-         * Items der nächsten Zielspalte verbinden.
-         */
-        if (!UI_ConnectOrders(
-                sourceOrder,
-                targetOrder))
-        {
-            UI_ClearConnections();
-
-            return 0;
-        }
-
-
-        sourceOrder =
-            targetOrder;
-    }
 
 
     return 1;
@@ -2487,7 +2744,7 @@ if (!UI_PermanentStructureChangedSincePreviousStep())
  * Verbindungsliste aus der neuen seriellen
  * Rasterreihenfolge aufbauen.
  */
-if (!UI_RebuildColumnConnections())
+if (!UI_RebuildCalculatedConnections())
 {
     /*
      * Neue Struktur ist für Stufe 1 nicht seriell
@@ -2501,7 +2758,7 @@ if (!UI_RebuildColumnConnections())
      * Auch die alte Verbindungsliste wieder aus
      * dem wiederhergestellten Zustand erzeugen.
      */
-    UI_RebuildColumnConnections();
+    UI_RebuildCalculatedConnections();
 
     return;
 }
@@ -3502,7 +3759,7 @@ void UI_Init(void)
         }
     }
 
-    if (!UI_RebuildColumnConnections())
+    if (!UI_RebuildCalculatedConnections())
     {
         /*
          * Für diesen Test bedeutet ein Fehler:
