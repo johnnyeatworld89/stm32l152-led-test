@@ -114,6 +114,29 @@ static UI_Item uiItems[] =
         .shortName = "Out1",
         .longName = "Output 1"
     }
+
+{
+        .id = 7,
+        .type = UI_ITEM_LOOP,
+        .order = 2,
+        .lane = -1,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L05",
+        .longName = "LOOP 5"
+}
+
+
+{
+        .id = 8,
+        .type = UI_ITEM_LOOP,
+        .order = 2,
+        .lane = -1,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "L06",
+        .longName = "LOOP 6"
+    }
 };
 
 
