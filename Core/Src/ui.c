@@ -173,6 +173,25 @@ static uint8_t UI_AddConnection(
     uint16_t targetId
 );
 
+static int8_t UI_CompareItemPositions(
+    const UI_Item *itemA,
+    const UI_Item *ite*B
+);
+
+static int16_t UI_FindValidOutputTargetAt(
+    int16_t order,
+    int16_t lane
+);
+
+static int16_t UI_FindValidInputSourceAt(
+    int16_t order,
+    int16_t lane
+);
+
+static int16_t UI_FindNextRoutingItemIndex(
+    int16_t previousIndex
+);
+
 static uint8_t UI_RebuildCalculatedConnections(void);
 
 typedef struct
@@ -500,6 +519,7 @@ static int16_t UI_FindItemIndexById(uint16_t itemId)
 
     return -1;
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Clear one item area                                                        */
@@ -1013,6 +1033,30 @@ static int16_t UI_FindValidOutputTargetAt(
     return -1;
 }
 
+static int16_t UI_FindValidInputSourceAt(
+    int16_t order,
+    int16_t lane)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (!UI_IsValidInputSource(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order == order &&
+            uiItems[i].lane == lane)
+        {
+            return (int16_t)i;
+        }
+    }
+
+    return -1;
+}
+
 static uint8_t UI_HasIncomingConnection(
     uint16_t itemId)
 {
@@ -1328,9 +1372,6 @@ static int16_t UI_FindNextRoutingItemIndex(
 }
 
 
-    return nextOrder;
-}
-
 
 static uint8_t UI_RebuildCalculatedConnections(void)
 {
@@ -1409,8 +1450,7 @@ static uint8_t UI_RebuildCalculatedConnections(void)
 }
 
 
-    return 1;
-}
+
 
 
 
@@ -3443,94 +3483,7 @@ static void UI_DrawConnectionByIndex(
     );
 }
 
-static void UI_EraseConnectionsForChangedItems(void)
-{
-    /*
-     * Zu diesem Zeitpunkt enthält uiGeometry noch
-     * die alten Bildschirmpositionen.
-     *
-     * Deshalb können die alten Verbindungen exakt
-     * mit der Hintergrundfarbe überzeichnet werden.
-     */
-    for (uint16_t connectionIndex = 0;
-         connectionIndex < uiConnectionCount;
-         connectionIndex++)
-    {
-        int16_t sourceIndex =
-            UI_FindItemIndexById(
-                uiConnections[
-                    connectionIndex
-                ].sourceId
-            );
-
-        int16_t targetIndex =
-            UI_FindItemIndexById(
-                uiConnections[
-                    connectionIndex
-                ].targetId
-            );
-
-
-        if (sourceIndex < 0 ||
-            targetIndex < 0)
-        {
-            continue;
-        }
-
-
-        if (UI_ItemPositionChanged(
-                (uint16_t)sourceIndex) ||
-            UI_ItemPositionChanged(
-                (uint16_t)targetIndex))
-        {
-            UI_DrawConnectionByIndex(
-                connectionIndex,
-                UI_COLOR_BACKGROUND
-            );
-        }
-    }
-}
-
-static void UI_DrawConnectionsForChangedItems(void)
-{
-    for (uint16_t connectionIndex = 0;
-         connectionIndex <
-             uiConnectionCount;
-         connectionIndex++)
-    {
-        int16_t sourceIndex =
-            UI_FindItemIndexById(
-                uiConnections[
-                    connectionIndex
-                ].sourceId
-            );
-
-        int16_t targetIndex =
-            UI_FindItemIndexById(
-                uiConnections[
-                    connectionIndex
-                ].targetId
-            );
-
-        if (sourceIndex < 0 ||
-            targetIndex < 0)
-        {
-            continue;
-        }
-
-        if (UI_ItemPositionChanged(
-                (uint16_t)sourceIndex) ||
-            UI_ItemPositionChanged(
-                (uint16_t)targetIndex))
-        {
-            UI_DrawConnectionByIndex(
-                connectionIndex,
-                UI_COLOR_CONNECTION
-            );
-        }
-    }
-}
-
+  
 static void UI_DrawConnectionsForItem(
     int16_t itemIndex)
 {
