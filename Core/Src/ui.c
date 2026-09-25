@@ -204,6 +204,17 @@ static void UI_DrawItem(
 
 static void UI_DrawFooter(void);
 
+/*
+* Horizontal viewport.
+*/
+static void UI_ClampHorizontalViewport(void);
+ 
+ 
+/*
+* Structure boundaries.
+*/
+static int16_t UI_GetMinimumPermanentOrder(void);
+
 static int16_t UI_FindFirstSelectableIndex(void);
 
 static int16_t UI_FindNextSelectableIndex(
