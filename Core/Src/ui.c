@@ -118,7 +118,7 @@ static UI_Item uiItems[] =
 {
         .id = 7,
         .type = UI_ITEM_LOOP,
-        .order = 2,
+        .order = 1,
         .lane = -1,
         .loopStatus = UI_LOOP_STATUS_OFF,
         .focus = UI_FOCUS_NONE,
@@ -161,6 +161,27 @@ static uint16_t uiConnectionCount = 0U;
 
 
 static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
+
+/*
+ * Absolute order der ersten links sichtbaren
+ * Bildschirmspalte.
+ *
+ * Beispiel:
+ * uiFirstVisibleOrder = 2
+ *
+ * Sichtbar sind:
+ * order 2, 3, 4 und 5.
+ */
+static int16_t uiFirstVisibleOrder = 0;
+
+
+/*
+ * Sicherheitsgrenze für die Anzahl logischer
+ * Spalten.
+ *
+ * Dies ist keine sichtbare Begrenzung.
+ */
+#define UI_MAX_ORDER_COUNT 32
 
 /* -------------------------------------------------------------------------- */
 /* Internal function prototypes                                               */
@@ -245,6 +266,8 @@ static UI_Connection previousStepConnections[
 ];
 
 static uint16_t previousStepConnectionCount = 0U;
+
+static int16_t previousStepFirstVisibleOrder = 0;
 
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
@@ -508,24 +531,198 @@ static uint8_t UI_IsLaneVisible(int16_t lane)
     return (lane >= -1 && lane <= 1) ? 1 : 0;
 }
 
-static void UI_CalculateGeometry(void)
+static int16_t UI_GetMaximumActiveOrder(void)
 {
-    for (uint16_t i = 0; i < UI_ITEM_COUNT; i++)
-    {
-        uiGeometry[i].itemId = uiItems[i].id;
-        uiGeometry[i].width = UI_ELEMENT_WIDTH;
-        uiGeometry[i].height = UI_ELEMENT_HEIGHT;
-        uiGeometry[i].visible = 0;
+    int16_t maximumOrder = -1;
 
-        if (uiItems[i].order < 0 ||
-            uiItems[i].order >= UI_VISIBLE_ELEMENT_COLUMNS ||
-            !UI_IsLaneVisible(uiItems[i].lane))
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        /*
+         * Entfernte automatische Knoten besitzen
+         * beispielsweise order = -100 und werden
+         * deshalb ignoriert.
+         */
+        if (uiItems[i].order < 0)
         {
             continue;
         }
 
-        uiGeometry[i].x = UI_GetElementX(uiItems[i].order);
-        uiGeometry[i].y = UI_GetLaneY(uiItems[i].lane);
+
+        if (uiItems[i].order >
+            maximumOrder)
+        {
+            maximumOrder =
+                uiItems[i].order;
+        }
+    }
+
+
+    return maximumOrder;
+}
+
+static void UI_ClampHorizontalViewport(void)
+{
+    int16_t maximumOrder =
+        UI_GetMaximumActiveOrder();
+
+
+    if (maximumOrder < 0)
+    {
+        uiFirstVisibleOrder = 0;
+        return;
+    }
+
+
+    int16_t maximumFirstVisibleOrder =
+        maximumOrder -
+        UI_VISIBLE_ELEMENT_COLUMNS +
+        1;
+
+
+    if (maximumFirstVisibleOrder < 0)
+    {
+        maximumFirstVisibleOrder = 0;
+    }
+
+
+    if (uiFirstVisibleOrder < 0)
+    {
+        uiFirstVisibleOrder = 0;
+    }
+
+
+    if (uiFirstVisibleOrder >
+        maximumFirstVisibleOrder)
+    {
+        uiFirstVisibleOrder =
+            maximumFirstVisibleOrder;
+    }
+}
+
+static uint8_t UI_EnsureItemVisible(
+    int16_t itemIndex)
+{
+    if (itemIndex < 0 ||
+        itemIndex >=
+            (int16_t)UI_ITEM_COUNT)
+    {
+        return 0;
+    }
+
+
+    if (uiItems[itemIndex].order < 0)
+    {
+        return 0;
+    }
+
+
+    int16_t previousViewportStart =
+        uiFirstVisibleOrder;
+
+    int16_t itemOrder =
+        uiItems[itemIndex].order;
+
+
+    /*
+     * Item liegt links außerhalb des Viewports.
+     *
+     * Das Item wird in den ganz linken Slot
+     * gescrollt.
+     */
+    if (itemOrder <
+        uiFirstVisibleOrder)
+    {
+        uiFirstVisibleOrder =
+            itemOrder;
+    }
+
+
+    /*
+     * Item liegt rechts außerhalb des Viewports.
+     *
+     * Das Item wird in den ganz rechten sichtbaren
+     * Slot gescrollt.
+     */
+    else if (itemOrder >=
+             uiFirstVisibleOrder +
+             UI_VISIBLE_ELEMENT_COLUMNS)
+    {
+        uiFirstVisibleOrder =
+            itemOrder -
+            UI_VISIBLE_ELEMENT_COLUMNS +
+            1;
+    }
+
+
+    UI_ClampHorizontalViewport();
+
+
+    return
+        (uiFirstVisibleOrder !=
+         previousViewportStart) ?
+        1 :
+        0;
+}
+
+static void UI_CalculateGeometry(void)
+{
+    UI_ClampHorizontalViewport();
+
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        uiGeometry[i].itemId =
+            uiItems[i].id;
+
+        uiGeometry[i].width =
+            UI_ELEMENT_WIDTH;
+
+        uiGeometry[i].height =
+            UI_ELEMENT_HEIGHT;
+
+        uiGeometry[i].visible = 0;
+
+
+        if (uiItems[i].order < 0 ||
+            !UI_IsLaneVisible(
+                uiItems[i].lane))
+        {
+            continue;
+        }
+
+
+        /*
+         * Absolute logische order in einen
+         * sichtbaren Slot umrechnen.
+         */
+        int16_t visibleOrder =
+            uiItems[i].order -
+            uiFirstVisibleOrder;
+
+
+        if (visibleOrder < 0 ||
+            visibleOrder >=
+                UI_VISIBLE_ELEMENT_COLUMNS)
+        {
+            continue;
+        }
+
+
+        uiGeometry[i].x =
+            UI_GetElementX(
+                visibleOrder
+            );
+
+        uiGeometry[i].y =
+            UI_GetLaneY(
+                uiItems[i].lane
+            );
+
         uiGeometry[i].visible = 1;
     }
 }
@@ -2258,12 +2455,41 @@ static void UI_SetSelectedIndex(
     }
 
     uiItems[newIndex].focus =
-        UI_FOCUS_SELECTED;
+    UI_FOCUS_SELECTED;
 
+
+/*
+ * Prüfen, ob für das neue Item horizontal
+ * gescrollt werden muss.
+ */
+uint8_t viewportChanged =
+    UI_EnsureItemVisible(
+        newIndex
+    );
+
+
+if (viewportChanged)
+{
+    /*
+     * Beim Scrollen verändern sich die sichtbaren
+     * Positionen aller Items und Verbindungen.
+     *
+     * Deshalb zunächst vollständigen sichtbaren
+     * Viewport neu zeichnen.
+     */
+    UI_Draw();
+}
+else
+{
+    /*
+     * Kein Scrollschritt:
+     * schnelles lokales Auswahlupdate.
+     */
     UI_UpdateSelectionDisplay(
         oldIndex,
         newIndex
     );
+}
 }
 
 
@@ -2508,6 +2734,10 @@ static void UI_SavePreviousStepState(void)
         previousStepConnections[i] =
             uiConnections[i];
     }
+
+    previousStepFirstVisibleOrder =
+        uiFirstVisibleOrder;
+    
 }
 
 
@@ -2527,6 +2757,9 @@ static void UI_RestorePreviousStepState(void)
         uiItems[i].focus =
             previousStepState[i].focus;
     }
+    uiFirstVisibleOrder =
+        previousStepFirstVisibleOrder;
+    
 }
 
 
@@ -2640,11 +2873,12 @@ static void UI_MoveGrabbedHorizontal(
      * Die neue Input-Randspalte entsteht erst,
      * wenn ein Item die bisherige order 0 betritt.
      */
-    if (targetOrder < 0 ||
-        targetOrder >= UI_VISIBLE_ELEMENT_COLUMNS)
-    {
-        return;
-    }
+   if (targetOrder < 0 ||
+    targetOrder >=
+        UI_MAX_ORDER_COUNT)
+{
+    return;
+}
 
 
     int16_t targetPermanentIndex =
@@ -2831,7 +3065,32 @@ if (!UI_RebuildCalculatedConnections())
  * Alte Verbindungen aus dem Snapshot entfernen
  * und die neue Struktur lokal darstellen.
  */
-UI_UpdateChangedStructureDisplay();
+/*
+ * Nach der Strukturänderung sicherstellen, dass
+ * das gegriffene Item weiterhin sichtbar bleibt.
+ */
+uint8_t viewportChanged =
+    UI_EnsureItemVisible(
+        grabbedIndex
+    );
+
+
+if (viewportChanged)
+{
+    /*
+     * Alle sichtbaren Spalten haben sich relativ
+     * zum Display verschoben.
+     */
+    UI_Draw();
+}
+else
+{
+    /*
+     * Viewport unverändert:
+     * schnelles lokales Strukturupdate.
+     */
+    UI_UpdateChangedStructureDisplay();
+}
 }
 
 void UI_HandleEncoderStep(
@@ -3692,6 +3951,7 @@ static void UI_DrawFooter(void)
 
 void UI_Init(void)
 {
+
     int16_t firstFocusedIndex = -1;
 
     for (uint16_t i = 0;
@@ -3743,7 +4003,11 @@ void UI_Init(void)
          */
         UI_ClearConnections();
     }
-    
+
+
+    uiFirstVisibleOrder = 0;
+ 
+UI_ClampHorizontalViewport();
 }
 
 void UI_Draw(void)
