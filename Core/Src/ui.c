@@ -563,6 +563,181 @@ static int16_t UI_GetMaximumActiveOrder(void)
     return maximumOrder;
 }
 
+static uint8_t UI_OrderContainsItemType(
+    int16_t order,
+    UI_ItemType itemType)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].order != order)
+        {
+            continue;
+        }
+
+        if (uiItems[i].type == itemType)
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static uint8_t UI_TryBlockedEdgeScroll(
+    int16_t grabbedIndex,
+    int8_t direction)
+{
+    if (grabbedIndex < 0 ||
+        grabbedIndex >=
+            (int16_t)UI_ITEM_COUNT)
+    {
+        return 0;
+    }
+
+    if (direction == 0)
+    {
+        return 0;
+    }
+
+    const UI_Item *grabbedItem =
+        &uiItems[grabbedIndex];
+
+    if (grabbedItem->focus !=
+        UI_FOCUS_GRABBED)
+    {
+        return 0;
+    }
+
+    if (grabbedItem->order < 0)
+    {
+        return 0;
+    }
+
+    int16_t visibleOrder =
+        grabbedItem->order -
+        uiFirstVisibleOrder;
+
+    int16_t maximumOrder =
+        UI_GetMaximumActiveOrder();
+
+
+    /*
+     * Sonderfall rechts:
+     *
+     * Das gegriffene Item steht im letzten
+     * sichtbaren Slot. In der nächsten Order
+     * befindet sich die blockierende OUT-Spalte.
+     */
+    if (direction > 0)
+    {
+        if (visibleOrder !=
+            UI_VISIBLE_ELEMENT_COLUMNS - 1)
+        {
+            return 0;
+        }
+
+        int16_t blockingOrder =
+            grabbedItem->order + 1;
+
+        /*
+         * Die nächste Order muss existieren und
+         * die äußerste rechte Order sein.
+         */
+        if (blockingOrder != maximumOrder)
+        {
+            return 0;
+        }
+
+        if (!UI_OrderContainsItemType(
+                blockingOrder,
+                UI_ITEM_OUTPUT))
+        {
+            return 0;
+        }
+
+        int16_t oldViewportStart =
+            uiFirstVisibleOrder;
+
+        uiFirstVisibleOrder++;
+
+        UI_ClampHorizontalViewport();
+
+        if (uiFirstVisibleOrder ==
+            oldViewportStart)
+        {
+            return 0;
+        }
+
+        /*
+         * Nur die Ansicht hat sich verändert.
+         * Itempositionen und Verbindungen bleiben
+         * logisch unverändert.
+         */
+        UI_Draw();
+
+        return 1;
+    }
+
+
+    /*
+     * Sonderfall links:
+     *
+     * Das gegriffene Item steht im ersten
+     * sichtbaren Slot. In der vorherigen Order
+     * befindet sich die blockierende IN-Spalte.
+     */
+    if (visibleOrder != 0)
+    {
+        return 0;
+    }
+
+    int16_t blockingOrder =
+        grabbedItem->order - 1;
+
+    if (blockingOrder < 0)
+    {
+        return 0;
+    }
+
+    /*
+     * Die blockierende IN-Spalte muss die
+     * äußerste linke Order sein.
+     */
+    int16_t minimumOrder =
+        UI_GetMinimumPermanentOrder();
+
+    if (blockingOrder != minimumOrder)
+    {
+        return 0;
+    }
+
+    if (!UI_OrderContainsItemType(
+            blockingOrder,
+            UI_ITEM_INPUT))
+    {
+        return 0;
+    }
+
+    int16_t oldViewportStart =
+        uiFirstVisibleOrder;
+
+    uiFirstVisibleOrder--;
+
+    UI_ClampHorizontalViewport();
+
+    if (uiFirstVisibleOrder ==
+        oldViewportStart)
+    {
+        return 0;
+    }
+
+    UI_Draw();
+
+    return 1;
+}
+
 static void UI_ClampHorizontalViewport(void)
 {
     int16_t maximumOrder =
@@ -2899,11 +3074,23 @@ static void UI_MoveGrabbedHorizontal(
      * Item wird vorerst verhindert.
      */
     if ((grabbedItem->type == UI_ITEM_INPUT ||
-         grabbedItem->type == UI_ITEM_OUTPUT) &&
-        targetPermanentIndex >= 0)
-    {
-        return;
-    }
+     grabbedItem->type == UI_ITEM_OUTPUT) &&
+    targetPermanentIndex >= 0)
+{
+    /*
+     * Die Verschiebung ist blockiert.
+     *
+     * Falls sich das Item am sichtbaren Rand
+     * befindet, versuchen wir stattdessen einen
+     * zusätzlichen Viewport-Schritt.
+     */
+    UI_TryBlockedEdgeScroll(
+        grabbedIndex,
+        direction
+    );
+
+    return;
+}
     
     /*
      * Ziel ist ein normales permanentes Item.
@@ -3012,7 +3199,24 @@ UI_EnsureEdgeColumns();
  */
 if (!UI_ValidateEdgeRules())
 {
+    /*
+     * Ungültige Struktur vollständig
+     * wiederherstellen.
+     */
     UI_RestorePreviousStepState();
+
+    /*
+     * Nach dem Restore besitzt das Item wieder
+     * seine ursprüngliche Order.
+     *
+     * Jetzt darf gegebenenfalls nur der Viewport
+     * über den blockierenden IN-/OUT-Rand bewegt
+     * werden.
+     */
+    UI_TryBlockedEdgeScroll(
+        grabbedIndex,
+        direction
+    );
 
     return;
 }
