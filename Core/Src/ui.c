@@ -3245,7 +3245,32 @@ if (!UI_ValidateEdgeRules())
  */
 if (!UI_PermanentStructureChangedSincePreviousStep())
 {
+    /*
+     * Randspaltenerzeugung und Normalisierung
+     * haben wieder zum ursprünglichen permanenten
+     * Zustand geführt.
+     *
+     * Die Itembewegung hatte daher keine sichtbare
+     * beziehungsweise dauerhafte Wirkung.
+     */
     UI_RestorePreviousStepState();
+
+
+    /*
+     * Sonderfall:
+     *
+     * Befindet sich das gegriffene Item am sichtbaren
+     * Bildschirmrand und liegt direkt außerhalb die
+     * blockierende IN- oder OUT-Randspalte, wird nur
+     * der Viewport um eine Position verschoben.
+     *
+     * order und lane des Items bleiben unverändert.
+     */
+    (void)UI_TryBlockedEdgeScroll(
+        grabbedIndex,
+        direction
+    );
+
 
     return;
 }
