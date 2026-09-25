@@ -4006,7 +4006,7 @@ void UI_Init(void)
 
 
     uiFirstVisibleOrder = 0;
- 
+
 UI_ClampHorizontalViewport();
 }
 
