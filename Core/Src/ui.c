@@ -208,7 +208,7 @@ static void UI_DrawFooter(void);
 * Horizontal viewport.
 */
 static void UI_ClampHorizontalViewport(void);
- 
+
 /*
 * Structure boundaries.
 */
