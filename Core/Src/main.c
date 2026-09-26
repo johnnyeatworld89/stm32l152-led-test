@@ -9,6 +9,18 @@
 #include "st7735.h"
 #include "ost4ml8132a.h"
 #include "ui.h"
+#include "mcp23s17.h"
+
+/* -------------------------------------------------------------------------- */
+/* MCP23S17 configuration                                                     */
+/* -------------------------------------------------------------------------- */
+
+#define MCP23S17_HW_ADDRESS          0U
+
+#define SHIFT_MCP_PORT               MCP23S17_PORT_A
+#define SHIFT_MCP_PIN                0U
+
+#define SHIFT_DEBOUNCE_MS            30U
 
 
 /* -------------------------------------------------------------------------- */
@@ -17,6 +29,15 @@
 
 /* Global SPI handle used by st7735.c */
 SPI_HandleTypeDef hspi1;
+
+static MCP23S17_HandleTypeDef mcp23s17_1;
+static uint8_t shiftRawState = 0U;
+static uint8_t shiftStableState = 0U;
+
+static uint32_t shiftLastChangeTick = 0U;
+
+static uint8_t shiftInitialized = 0U;
+
 
 
 /* -------------------------------------------------------------------------- */
@@ -29,6 +50,13 @@ static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void Error_Handler(void);
 
+static HAL_StatusTypeDef MCP23S17_ApplicationInit(void);
+
+static void Shift_Update(void);
+
+static uint8_t Shift_IsPressed(void);
+
+
 static uint8_t encoderState = 0;
 static int8_t encoderAccumulator = 0;
 #define ENCODER_BUTTON_DEBOUNCE_MS  30U
@@ -40,6 +68,212 @@ static GPIO_PinState buttonStableState =
     GPIO_PIN_SET;
 
 static uint32_t buttonLastChangeTick = 0U;
+
+static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
+{
+    HAL_StatusTypeDef status;
+
+
+    /*
+     * MCP23S17 über SPI1 initialisieren.
+     *
+     * A2:A0 liegen auf GND:
+     * Hardwareadresse = 0.
+     */
+    status =
+        MCP23S17_Init(
+            &mcp23s17_1,
+            &hspi1,
+            MCP23S17_CS_GPIO_Port,
+            MCP23S17_CS_Pin,
+            MCP23S17_HW_ADDRESS
+        );
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    /*
+     * GPA0 als Eingang konfigurieren.
+     */
+    status =
+        MCP23S17_ConfigurePinAsInput(
+            &mcp23s17_1,
+            SHIFT_MCP_PORT,
+            SHIFT_MCP_PIN
+        );
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    /*
+     * Eingangspolarität nicht invertieren.
+     *
+     * Elektrisch gilt deshalb:
+     * GPA0 HIGH = Taster nicht gedrückt
+     * GPA0 LOW  = Taster gedrückt
+     */
+    status =
+        MCP23S17_SetInputPolarity(
+            &mcp23s17_1,
+            SHIFT_MCP_PORT,
+            SHIFT_MCP_PIN,
+            0U
+        );
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    /*
+     * Internen Pull-up von GPA0 aktivieren.
+     */
+    status =
+        MCP23S17_SetPullUp(
+            &mcp23s17_1,
+            SHIFT_MCP_PORT,
+            SHIFT_MCP_PIN,
+            1U
+        );
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    /*
+     * Tatsächlichen Startzustand einlesen.
+     */
+    uint8_t pinState = 1U;
+
+    status =
+        MCP23S17_ReadPin(
+            &mcp23s17_1,
+            SHIFT_MCP_PORT,
+            SHIFT_MCP_PIN,
+            &pinState
+        );
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    /*
+     * Active-low in logischen Shift-Zustand
+     * umwandeln.
+     */
+    shiftRawState =
+        (pinState == 0U) ?
+        1U :
+        0U;
+
+    shiftStableState =
+        shiftRawState;
+
+    shiftLastChangeTick =
+        HAL_GetTick();
+
+    shiftInitialized = 1U;
+
+
+    return HAL_OK;
+}
+
+static void Shift_Update(void)
+{
+    if (!shiftInitialized)
+    {
+        return;
+    }
+
+
+    uint8_t pinState = 1U;
+
+
+    HAL_StatusTypeDef status =
+        MCP23S17_ReadPin(
+            &mcp23s17_1,
+            SHIFT_MCP_PORT,
+            SHIFT_MCP_PIN,
+            &pinState
+        );
+
+
+    /*
+     * Bei einem SPI-Fehler den bisherigen stabilen
+     * Zustand beibehalten.
+     */
+    if (status != HAL_OK)
+    {
+        return;
+    }
+
+
+    /*
+     * Elektrisches Active-low-Signal in einen
+     * logischen Zustand umwandeln:
+     *
+     * 0 = nicht gedrückt
+     * 1 = gedrückt
+     */
+    uint8_t currentPressedState =
+        (pinState == 0U) ?
+        1U :
+        0U;
+
+
+    uint32_t currentTick =
+        HAL_GetTick();
+
+
+    /*
+     * Rohzustand hat sich verändert:
+     * Entprellzeit neu starten.
+     */
+    if (currentPressedState !=
+        shiftRawState)
+    {
+        shiftRawState =
+            currentPressedState;
+
+        shiftLastChangeTick =
+            currentTick;
+    }
+
+
+    /*
+     * Der neue Zustand muss mindestens 30 ms
+     * unverändert bleiben.
+     */
+    if ((currentTick -
+         shiftLastChangeTick) >=
+        SHIFT_DEBOUNCE_MS)
+    {
+        shiftStableState =
+            shiftRawState;
+    }
+}
+
+static uint8_t Shift_IsPressed(void)
+{
+    if (!shiftInitialized)
+    {
+        return 0U;
+    }
+
+    return shiftStableState;
+}
+
 
 static void Encoder_Update(void)
 {
