@@ -869,3 +869,34 @@ HAL_StatusTypeDef MCP23S17_WritePort(
         device,
         registerAddress,
         value
+    );
+}
+
+
+HAL_StatusTypeDef MCP23S17_WritePin(
+    MCP23S17_HandleTypeDef *device,
+    MCP23S17_Port port,
+    uint8_t pin,
+    uint8_t value)
+{
+    if (!MCP23S17_IsDeviceValid(device) ||
+        !MCP23S17_IsPortValid(port) ||
+        !MCP23S17_IsPinValid(pin))
+    {
+        return HAL_ERROR;
+    }
+
+
+    uint8_t registerAddress =
+        MCP23S17_GetOutputLatchRegister(
+            port
+        );
+
+
+    return MCP23S17_UpdateRegisterBit(
+        device,
+        registerAddress,
+        pin,
+        value ? 1U : 0U
+    );
+}
