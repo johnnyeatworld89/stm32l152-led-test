@@ -4,7 +4,7 @@
 
 #include "stm32l1xx_hal.h"
 
-#include 
+#include <stdint.h>
 
 
 /* -------------------------------------------------------------------------- */
@@ -147,4 +147,94 @@ HAL_StatusTypeDef MCP23S17_SetPullUp(
  * 0 = Eingang nicht invertiert
  * 1 = Eingang invertiert
  */
-HAL_StatusTypeDef
+HAL_StatusTypeDef MCP23S17_SetInputPolarity(
+    MCP23S17_HandleTypeDef *device,
+    MCP23S17_Port port,
+    uint8_t pin,
+    uint8_t inverted
+);
+
+
+/* -------------------------------------------------------------------------- */
+/* GPIO input                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Liest den vollständigen 8-Bit-Port.
+ */
+HAL_StatusTypeDef MCP23S17_ReadPort(
+    MCP23S17_HandleTypeDef *device,
+    MCP23S17_Port port,
+    uint8_t *value
+);
+
+
+/*
+ * Liest einen einzelnen GPIO.
+ *
+ * value:
+ *
+ * 0 = Pin LOW
+ * 1 = Pin HIGH
+ */
+HAL_StatusTypeDef MCP23S17_ReadPin(
+    MCP23S17_HandleTypeDef *device,
+    MCP23S17_Port port,
+    uint8_t pin,
+    uint8_t *value
+);
+
+
+/* -------------------------------------------------------------------------- */
+/* GPIO output                                                                */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Schreibt einen vollständigen 8-Bit-Port.
+ */
+HAL_StatusTypeDef MCP23S17_WritePort(
+    MCP23S17_HandleTypeDef *device,
+    MCP23S17_Port port,
+    uint8_t value
+);
+
+
+/*
+ * Schreibt einen einzelnen GPIO.
+ *
+ * value:
+ *
+ * 0 = Pin LOW
+ * 1 = Pin HIGH
+ */
+HAL_StatusTypeDef MCP23S17_WritePin(
+    MCP23S17_HandleTypeDef *device,
+    MCP23S17_Port port,
+    uint8_t pin,
+    uint8_t value
+);
+
+
+/* -------------------------------------------------------------------------- */
+/* Low-level register access                                                  */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Öffentliche Registerfunktionen für Diagnose
+ * und spätere Erweiterungen wie Interrupt-on-change.
+ */
+HAL_StatusTypeDef MCP23S17_WriteRegister(
+    MCP23S17_HandleTypeDef *device,
+    uint8_t registerAddress,
+    uint8_t value
+);
+
+
+HAL_StatusTypeDef MCP23S17_ReadRegister(
+    MCP23S17_HandleTypeDef *device,
+    uint8_t registerAddress,
+    uint8_t *value
+);
+
+
+#endif /* MCP23S17_H */
