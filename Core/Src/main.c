@@ -451,7 +451,10 @@ buttonStableState =
 buttonLastChangeTick =
     HAL_GetTick();
 
-
+if (MCP23S17_Application-Init() != HAL_OK)
+{
+ Error_Handler();
+}
 
 
     /* ---------------------------------------------------------------------- */
@@ -504,6 +507,7 @@ buttonLastChangeTick =
 
 while (1)
 {
+ Shift_Update();
     Encoder_Update();
     Button_Update();
 }
