@@ -261,4 +261,15 @@ void UI_HandleEncoderStep(
     int8_t direction
 );
 
+/*
+ * Temporärer Debug-Indikator für die Shift-Taste.
+ *
+ * pressed:
+ * 0 = Shift nicht gedrückt
+ * 1 = Shift gedrückt
+ */
+void UI_SetShiftDebugState(
+    uint8_t pressed
+);
+
 #endif
