@@ -262,6 +262,24 @@ static void Shift_Update(void)
         shiftStableState =
             shiftRawState;
     }
+
+if (shiftStableState)
+{
+    HAL_GPIO_WritePin(
+        LD2_GPIO_Port,
+        LD2_Pin,
+        GPIO_PIN_SET
+    );
+}
+else
+{
+    HAL_GPIO_WritePin(
+        LD2_GPIO_Port,
+        LD2_Pin,
+        GPIO_PIN_RESET
+    );
+}
+
 }
 
 static uint8_t Shift_IsPressed(void)
@@ -432,7 +450,6 @@ int main(void)
     /* ---------------------------------------------------------------------- */
 
     MX_GPIO_Init();
- 
     MX_SPI1_Init();
 
     /* Give the hardware a short moment to stabilize */
