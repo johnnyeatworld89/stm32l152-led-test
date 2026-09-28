@@ -48,6 +48,14 @@
 #define ENCODER_BUTTON_DEBOUNCE_MS     30U
 #define SHIFT_DEBOUNCE_MS              30U
 
+#define MCP23S17_REG_IODIRB  0x01U
+#define MCP23S17_REG_GPPUB   0x0DU
+#define MCP23S17_REG_GPIOB   0x13U
+
+volatile uint8_t debugMcpIodirB = 0U;
+volatile uint8_t debugMcpGppuB = 0U;
+volatile uint8_t debugMcpGpioB = 0U;
+volatile uint8_t debugMcpReadOk = 0U;
 
 /* -------------------------------------------------------------------------- */
 /* Global peripheral handles                                                  */
@@ -498,9 +506,38 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
         shiftStableState;
 
 UI_SetShiftDebugState(
-    shiftStableState
+    pinState == 0U ? 1U : 0U
 );
- 
+
+ if (MCP23S17_ReadRegister(
+        &mcp23s17_1,
+        MCP23S17_REG_IODIRB,
+        (uint8_t *)&debugMcpIodirB) != HAL_OK)
+{
+    return HAL_ERROR;
+}
+
+
+if (MCP23S17_ReadRegister(
+        &mcp23s17_1,
+        MCP23S17_REG_GPPUB,
+        (uint8_t *)&debugMcpGppuB) != HAL_OK)
+{
+    return HAL_ERROR;
+}
+
+
+if (MCP23S17_ReadRegister(
+        &mcp23s17_1,
+        MCP23S17_REG_GPIOB,
+        (uint8_t *)&debugMcpGpioB) != HAL_OK)
+{
+    return HAL_ERROR;
+}
+
+
+debugMcpReadOk = 1U;
+
 
     return HAL_OK;
 }
