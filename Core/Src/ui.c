@@ -44,6 +44,22 @@
 #define UI_ARROW_HALF_WIDTH             3
 #define UI_ARROW_FIXED_SCALE            256
 
+/* -------------------------------------------------------------------------- */
+/* Shift debug indicator                                                      */
+/* -------------------------------------------------------------------------- */
+
+#define UI_SHIFT_INDICATOR_WIDTH       12U
+#define UI_SHIFT_INDICATOR_HEIGHT      10U
+
+#define UI_SHIFT_INDICATOR_X           \
+    (UI_DISPLAY_WIDTH -                \
+     UI_SHIFT_INDICATOR_WIDTH - 1U)
+
+#define UI_SHIFT_INDICATOR_Y           \
+    (UI_FOOTER_TOP +                   \
+     ((UI_FOOTER_HEIGHT -              \
+       UI_SHIFT_INDICATOR_HEIGHT) / 2U))
+
 static UI_Item uiItems[] =
 {
     {
@@ -174,6 +190,13 @@ static UI_ItemGeometry uiGeometry[UI_ITEM_COUNT];
  */
 static int16_t uiFirstVisibleOrder = 0;
 
+/*
+ * Temporärer Shift-Debugzustand.
+ *
+ * 0 = nicht gedrückt
+ * 1 = gedrückt
+ */
+static uint8_t uiShiftDebugState = 0U;
 
 /*
  * Sicherheitsgrenze für die Anzahl logischer
@@ -201,6 +224,8 @@ static void UI_DrawItem(
     int16_t x,
     int16_t y
 );
+
+
 
 static void UI_DrawFooter(void);
 
@@ -4138,6 +4163,119 @@ static const UI_Item *UI_GetFocusedItem(void)
     return NULL;
 }
 
+static void UI_DrawShiftDebugIndicator(void)
+{
+    uint16_t fillColor =
+        uiShiftDebugState ?
+        UI_COLOR_BORDER_GRABBED :
+        UI_COLOR_BACKGROUND;
+
+    uint16_t textColor =
+        uiShiftDebugState ?
+        UI_COLOR_TEXT_DARK :
+        UI_COLOR_TEXT_LIGHT;
+
+
+    /*
+     * Indikatorfläche löschen beziehungsweise
+     * in der aktuellen Zustandsfarbe füllen.
+     */
+    ST7735_FillRect(
+        UI_SHIFT_INDICATOR_X,
+        UI_SHIFT_INDICATOR_Y,
+        UI_SHIFT_INDICATOR_WIDTH,
+        UI_SHIFT_INDICATOR_HEIGHT,
+        fillColor
+    );
+
+
+    /*
+     * Weißen Rahmen zeichnen.
+     */
+    ST7735_DrawLine(
+        UI_SHIFT_INDICATOR_X,
+        UI_SHIFT_INDICATOR_Y,
+        UI_SHIFT_INDICATOR_X +
+            UI_SHIFT_INDICATOR_WIDTH - 1,
+        UI_SHIFT_INDICATOR_Y,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    ST7735_DrawLine(
+        UI_SHIFT_INDICATOR_X,
+        UI_SHIFT_INDICATOR_Y +
+            UI_SHIFT_INDICATOR_HEIGHT - 1,
+        UI_SHIFT_INDICATOR_X +
+            UI_SHIFT_INDICATOR_WIDTH - 1,
+        UI_SHIFT_INDICATOR_Y +
+            UI_SHIFT_INDICATOR_HEIGHT - 1,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    ST7735_DrawLine(
+        UI_SHIFT_INDICATOR_X,
+        UI_SHIFT_INDICATOR_Y,
+        UI_SHIFT_INDICATOR_X,
+        UI_SHIFT_INDICATOR_Y +
+            UI_SHIFT_INDICATOR_HEIGHT - 1,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    ST7735_DrawLine(
+        UI_SHIFT_INDICATOR_X +
+            UI_SHIFT_INDICATOR_WIDTH - 1,
+        UI_SHIFT_INDICATOR_Y,
+        UI_SHIFT_INDICATOR_X +
+            UI_SHIFT_INDICATOR_WIDTH - 1,
+        UI_SHIFT_INDICATOR_Y +
+            UI_SHIFT_INDICATOR_HEIGHT - 1,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+
+    /*
+     * "S" innerhalb des Indikators darstellen.
+     */
+    Font5x7_DrawString(
+        UI_SHIFT_INDICATOR_X + 4U,
+        UI_SHIFT_INDICATOR_Y + 2U,
+        "S",
+        textColor,
+        fillColor,
+        1U
+    );
+}
+
+void UI_SetShiftDebugState(
+    uint8_t pressed)
+{
+    uint8_t newState =
+        pressed ?
+        1U :
+        0U;
+
+
+    /*
+     * Kein Displayzugriff, wenn sich der Zustand
+     * nicht verändert hat.
+     */
+    if (newState ==
+        uiShiftDebugState)
+    {
+        return;
+    }
+
+
+    uiShiftDebugState =
+        newState;
+
+
+    /*
+     * Nur den kleinen Indikator neu zeichnen.
+     */
+    UI_DrawShiftDebugIndicator();
+}
+
 static void UI_DrawFooter(void)
 {
     const UI_Item *focusedItem = UI_GetFocusedItem();
@@ -4147,16 +4285,20 @@ static void UI_DrawFooter(void)
                     UI_COLOR_BACKGROUND);
 
     if (focusedItem == NULL)
-    {
-        return;
-    }
+{
+    UI_DrawShiftDebugIndicator();
+
+    return;
+}
 
     int16_t focusedIndex = UI_FindItemIndexById(focusedItem->id);
+if (focusedIndex < 0 ||
+    !uiGeometry[focusedIndex].visible)
+{
+    UI_DrawShiftDebugIndicator();
 
-    if (focusedIndex < 0 || !uiGeometry[focusedIndex].visible)
-    {
-        return;
-    }
+    return;
+}
 
     const UI_ItemGeometry *geometry = &uiGeometry[focusedIndex];
     uint16_t textWidth =
@@ -4169,10 +4311,23 @@ static void UI_DrawFooter(void)
         textX = 0;
     }
 
-    if ((textX + (int16_t)textWidth) > UI_DISPLAY_WIDTH)
-    {
-        textX = UI_DISPLAY_WIDTH - (int16_t)textWidth;
-    }
+   int16_t footerTextRightLimit =
+    UI_SHIFT_INDICATOR_X - 2;
+
+
+if ((textX + (int16_t)textWidth) >
+    footerTextRightLimit)
+{
+    textX =
+        footerTextRightLimit -
+        (int16_t)textWidth;
+}
+
+
+if (textX < 0)
+{
+    textX = 0;
+}
 
     uint16_t textHeight = Font5x7_GetHeight(1);
     uint16_t textY = UI_FOOTER_TOP;
@@ -4186,6 +4341,13 @@ static void UI_DrawFooter(void)
                        focusedItem->longName,
                        UI_GetFocusColor(focusedItem),
                        UI_COLOR_BACKGROUND, 1);
+/*
+ * Shift-Debugindikator nach dem Footertext
+ * wiederherstellen.
+ */
+UI_DrawShiftDebugIndicator();
+    
+
 }
 
 void UI_Init(void)
