@@ -497,6 +497,10 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
     debugShiftPressed =
         shiftStableState;
 
+UI_SetShiftDebugState(
+    shiftStableState
+);
+ 
 
     return HAL_OK;
 }
@@ -678,6 +682,10 @@ int main(void)
     UI_Init();
 
     UI_Draw();
+
+    UI_SetShiftDebugState(
+     Shift_IsPressed()
+    );
 
 
     /* ---------------------------------------------------------------------- */
