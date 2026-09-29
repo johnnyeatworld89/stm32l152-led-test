@@ -258,7 +258,8 @@ void UI_ToggleGrab(void);
 uint8_t UI_IsGrabbed(void);
 
 void UI_HandleEncoderStep(
-    int8_t direction
+    int8_t direction,
+    uint8_t shiftPressed
 );
 
 /*
