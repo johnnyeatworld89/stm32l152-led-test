@@ -273,4 +273,8 @@ void UI_SetShiftDebugState(
     uint8_t pressed
 );
 
+void UI_HandleEncoderButton(
+    uint8_t shiftPressed
+);
+
 #endif
