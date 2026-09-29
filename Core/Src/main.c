@@ -354,10 +354,12 @@ static void Button_Update(void)
              * the grab state.
              */
             if (buttonStableState ==
-                GPIO_PIN_RESET)
-            {
-                UI_ToggleGrab();
-            }
+    GPIO_PIN_RESET)
+{
+    UI_HandleEncoderButton(
+        Shift_IsPressed()
+    );
+}
         }
     }
 }
