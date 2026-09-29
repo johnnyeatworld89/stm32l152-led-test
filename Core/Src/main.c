@@ -259,7 +259,10 @@ static void Encoder_Update(void)
          * movement. Existing horizontal behavior
          * remains active during this hardware test.
          */
-        UI_HandleEncoderStep(1);
+        UI_HandleEncoderStep(
+    1,
+    Shift_IsPressed()
+);
     }
 
 
@@ -267,7 +270,10 @@ static void Encoder_Update(void)
     {
         encoderAccumulator += 4;
 
-        UI_HandleEncoderStep(-1);
+        UI_HandleEncoderStep(
+    -1,
+    Shift_IsPressed()
+);
     }
 }
 
