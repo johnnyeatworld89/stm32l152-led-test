@@ -273,6 +273,8 @@ static int16_t UI_FindNextRoutingItemIndex(
 
 static uint8_t UI_RebuildCalculatedConnections(void);
 
+
+
 typedef struct
 {
     int16_t x;
@@ -3357,7 +3359,11 @@ else
 }
 }
 
-void UI_HandleEncoderStep(
+/* -------------------------------------------------------------------------- */
+/* Vertical movement of grabbed item                                          */
+/* -------------------------------------------------------------------------- */
+
+static void UI_MoveGrabbedVertical(
     int8_t direction)
 {
     if (direction == 0)
@@ -3365,15 +3371,279 @@ void UI_HandleEncoderStep(
         return;
     }
 
-    if (UI_IsGrabbed())
+
+    int16_t grabbedIndex =
+        UI_GetFocusedIndex();
+
+
+    if (grabbedIndex < 0)
     {
-        UI_MoveGrabbedHorizontal(
-            direction
+        return;
+    }
+
+
+    /*
+     * Nur das aktuell gegriffene Item darf
+     * vertikal bewegt werden.
+     */
+    if (uiItems[grabbedIndex].focus !=
+        UI_FOCUS_GRABBED)
+    {
+        return;
+    }
+
+
+    UI_Item *grabbedItem =
+        &uiItems[grabbedIndex];
+
+
+    /*
+     * Automatische Knoten sind nicht greifbar
+     * und dürfen nicht direkt bewegt werden.
+     */
+    if (!UI_IsPermanentItem(
+            grabbedItem))
+    {
+        return;
+    }
+
+
+    /*
+     * Aktuelle Zuordnung:
+     *
+     * positive Richtung:
+     * lane + 1 = nach oben
+     *
+     * negative Richtung:
+     * lane - 1 = nach unten
+     */
+    int16_t targetLane =
+        grabbedItem->lane +
+        ((direction > 0) ? 1 : -1);
+
+
+    /*
+     * Erste Implementierungsstufe:
+     *
+     * Nur die drei sichtbaren Lanes verwenden:
+     *
+     * +1 = oben
+     *  0 = Mitte
+     * -1 = unten
+     *
+     * Vertikales Scrollen und zusätzliche Lanes
+     * werden später separat ergänzt.
+     */
+    if (targetLane < -1 ||
+        targetLane > 1)
+    {
+        return;
+    }
+
+
+    /*
+     * Prüfen, ob sich in derselben Order auf der
+     * Ziel-Lane bereits ein permanentes Item
+     * befindet.
+     */
+    int16_t targetPermanentIndex =
+        UI_FindPermanentItemAt(
+            grabbedItem->order,
+            targetLane,
+            grabbedIndex
         );
+
+
+    /*
+     * Zustand unmittelbar vor der tatsächlichen
+     * Änderung sichern.
+     *
+     * Gesichert werden:
+     *
+     * - order und lane aller Items
+     * - Fokuszustände
+     * - alte Bildschirmgeometrie
+     * - alte Verbindungsliste
+     * - horizontaler Viewport
+     */
+    UI_SavePreviousStepState();
+
+
+    if (targetPermanentIndex >= 0)
+    {
+        /*
+         * Die Zielposition ist durch ein permanentes
+         * Item belegt.
+         *
+         * Beide Items tauschen ihre Lanes.
+         *
+         * Die Order beider Items bleibt unverändert.
+         */
+        int16_t grabbedOldLane =
+            grabbedItem->lane;
+
+        int16_t targetOldLane =
+            uiItems[
+                targetPermanentIndex
+            ].lane;
+
+
+        uiItems[
+            targetPermanentIndex
+        ].lane =
+            grabbedOldLane;
+
+
+        grabbedItem->lane =
+            targetOldLane;
+    }
+    else
+    {
+        /*
+         * Die Zielposition ist frei oder enthält
+         * lediglich einen automatischen Knoten.
+         *
+         * Das gegriffene Item übernimmt die
+         * gewünschte Lane.
+         */
+        grabbedItem->lane =
+            targetLane;
+    }
+
+
+    /*
+     * Nach einer Benutzeränderung werden alle
+     * vorhandenen automatischen Knoten entfernt.
+     *
+     * Neue automatische Knoten werden in diesem
+     * Entwicklungsschritt noch nicht erzeugt.
+     */
+    UI_RemoveAllAutoNodes();
+
+
+    /*
+     * Vertikale Bewegungen verändern keine Orders.
+     *
+     * Die bestehenden IN-/OUT-Randregeln müssen
+     * daher weiterhin erfüllt sein.
+     */
+    if (!UI_ValidateEdgeRules())
+    {
+        UI_RestorePreviousStepState();
+
+        /*
+         * Alte Verbindungsliste aus dem
+         * wiederhergestellten Zustand aufbauen.
+         */
+        UI_RebuildCalculatedConnections();
 
         return;
     }
 
+
+    /*
+     * Prüfen, ob sich die permanente Struktur
+     * tatsächlich verändert hat.
+     */
+    if (!UI_PermanentStructureChangedSincePreviousStep())
+    {
+        UI_RestorePreviousStepState();
+
+        return;
+    }
+
+
+    /*
+     * Pfeile aus den neuen Itempositionen
+     * vollständig neu berechnen.
+     *
+     * Dabei gelten weiterhin:
+     *
+     * - Pfeillänge genau eine Order
+     * - Lane-Differenz nur 0, +1 oder -1
+     *
+     * Wenn kein gültiges Ziel beziehungsweise
+     * keine gültige Quelle gefunden wird, bleibt
+     * die Verbindung in dieser Entwicklungsstufe
+     * offen.
+     */
+    if (!UI_RebuildCalculatedConnections())
+    {
+        UI_RestorePreviousStepState();
+
+        /*
+         * Alte Verbindungsliste wiederherstellen.
+         */
+        UI_RebuildCalculatedConnections();
+
+        return;
+    }
+
+
+    /*
+     * Alte Items und Pfeile anhand des Snapshots
+     * entfernen und die neue Struktur lokal
+     * aktualisieren.
+     */
+    UI_UpdateChangedStructureDisplay();
+}
+
+static void UI_MoveGrabbedVertical(
+    int8_t direction
+);
+
+/* -------------------------------------------------------------------------- */
+/* Central encoder action                                                     */
+/* -------------------------------------------------------------------------- */
+
+void UI_HandleEncoderStep(
+    int8_t direction,
+    uint8_t shiftPressed)
+{
+    if (direction == 0)
+    {
+        return;
+    }
+
+
+    /*
+     * Im Grab-Modus entscheidet Shift über die
+     * Bewegungsrichtung.
+     */
+    if (UI_IsGrabbed())
+    {
+        if (shiftPressed)
+        {
+            /*
+             * Shift gehalten:
+             * gegriffenes Item vertikal bewegen.
+             */
+            UI_MoveGrabbedVertical(
+                direction
+            );
+        }
+        else
+        {
+            /*
+             * Shift nicht gehalten:
+             * gegriffenes Item horizontal bewegen.
+             */
+            UI_MoveGrabbedHorizontal(
+                direction
+            );
+        }
+
+        return;
+    }
+
+
+    /*
+     * Wenn kein Item gegriffen ist, bleibt die
+     * bisherige Auswahlbewegung unverändert.
+     *
+     * Shift besitzt in diesem Zustand vorerst
+     * keine Funktion.
+     */
     if (direction > 0)
     {
         UI_SelectNext();
