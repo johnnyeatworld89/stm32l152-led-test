@@ -179,10 +179,10 @@ static void Encoder_Init(void)
 /* Rotary encoder polling                                                     */
 /* -------------------------------------------------------------------------- */
 
-static void Encoder_Update(void*
+static void Encoder_Update(void)
 {
     uint8_t encoderA =
-        *HAL_GPIO_ReadPin(
+        (HAL_GPIO_ReadPin(
             GPIOC,
             GPIO_PIN_1
         ) == GPIO_PIN_SET) ?
@@ -478,14 +478,14 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
      * GPPUB bit 7 = 1
      */
     status =
-        MCP23S17_Re*dRegister(
-            &mcp23s17_1*
-            MCP23S17_TEST_REG_IOD*RB,
-            (uint8_t *)&debugM*pIODIRB
+        MCP23S17_ReadRegister(
+            &mcp23s17_1,
+            MCP23S17_TEST_REG_IODIRB,
+            (uint8_t *)&debugMcpIODIRB
         );
 
 
-    if (statu* != HAL_OK)
+    if (status != HAL_OK)
     {
         return status;
     }
@@ -632,8 +632,8 @@ static void Shift_Update(void)
      * Shift pressed.
      */
     uint8_t pinState =
-        (*pioB &
-         (uint8_t)(1U << SH*FT_MCP_PIN)) ?
+        (gpioB &
+         (uint8_t)(1U << SHIFT_MCP_PIN)) ?
         1U :
         0U;
 
@@ -939,4 +939,270 @@ static void MX_GPIO_Init(void)
 
 
     /* ---------------------------------------------------------------------- */
-    /* Encoder inputs  
+    /* Encoder inputs                                                         */
+    /*                                                                        */
+    /* PA0 = encoder switch                                                   */
+    /* PA1 = encoder B                                                        */
+    /* PC1 = encoder A                                                        */
+    /* ---------------------------------------------------------------------- */
+
+    GPIO_InitStruct.Pin =
+        GPIO_PIN_0 |
+        GPIO_PIN_1;
+
+    GPIO_InitStruct.Mode =
+        GPIO_MODE_INPUT;
+
+    GPIO_InitStruct.Pull =
+        GPIO_PULLUP;
+
+
+    HAL_GPIO_Init(
+        GPIOA,
+        &GPIO_InitStruct
+    );
+
+
+    GPIO_InitStruct.Pin =
+        GPIO_PIN_1;
+
+    GPIO_InitStruct.Mode =
+        GPIO_MODE_INPUT;
+
+    GPIO_InitStruct.Pull =
+        GPIO_PULLUP;
+
+
+    HAL_GPIO_Init(
+        GPIOC,
+        &GPIO_InitStruct
+    );
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* SPI1 initialization                                                        */
+/* -------------------------------------------------------------------------- */
+
+static void MX_SPI1_Init(void)
+{
+    __HAL_RCC_SPI1_CLK_ENABLE();
+
+
+    hspi1.Instance =
+        SPI1;
+
+
+    hspi1.Init.Mode =
+        SPI_MODE_MASTER;
+
+
+    /*
+     * Full duplex is required because the
+     * MCP23S17 uses a separate MISO line.
+     */
+    hspi1.Init.Direction =
+        SPI_DIRECTION_2LINES;
+
+
+    hspi1.Init.DataSize =
+        SPI_DATASIZE_8BIT;
+
+
+    hspi1.Init.CLKPolarity =
+        SPI_POLARITY_LOW;
+
+
+    hspi1.Init.CLKPhase =
+        SPI_PHASE_1EDGE;
+
+
+    hspi1.Init.NSS =
+        SPI_NSS_SOFT;
+
+
+    /*
+     * System clock = 32 MHz
+     * Prescaler     = 16
+     * SPI clock     = approximately 2 MHz
+     */
+    hspi1.Init.BaudRatePrescaler =
+        SPI_BAUDRATEPRESCALER_16;
+
+
+    hspi1.Init.FirstBit =
+        SPI_FIRSTBIT_MSB;
+
+
+    hspi1.Init.TIMode =
+        SPI_TIMODE_DISABLED;
+
+
+    hspi1.Init.CRCCalculation =
+        SPI_CRCCALCULATION_DISABLED;
+
+
+    hspi1.Init.CRCPolynomial =
+        7;
+
+
+    if (HAL_SPI_Init(
+            &hspi1) !=
+        HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* System clock configuration                                                 */
+/* -------------------------------------------------------------------------- */
+
+void SystemClock_Config(void)
+{
+    RCC_ClkInitTypeDef RCC_ClkInitStruct =
+    {
+        0
+    };
+
+
+    RCC_OscInitTypeDef RCC_OscInitStruct =
+    {
+        0
+    };
+
+
+    RCC_OscInitStruct.OscillatorType =
+        RCC_OSCILLATORTYPE_HSI;
+
+
+    RCC_OscInitStruct.HSIState =
+        RCC_HSI_ON;
+
+
+    RCC_OscInitStruct.HSICalibrationValue =
+        RCC_HSICALIBRATION_DEFAULT;
+
+
+    RCC_OscInitStruct.PLL.PLLState =
+        RCC_PLL_ON;
+
+
+    RCC_OscInitStruct.PLL.PLLSource =
+        RCC_PLLSOURCE_HSI;
+
+
+    RCC_OscInitStruct.PLL.PLLMUL =
+        RCC_PLL_MUL6;
+
+
+    RCC_OscInitStruct.PLL.PLLDIV =
+        RCC_PLL_DIV3;
+
+
+    if (HAL_RCC_OscConfig(
+            &RCC_OscInitStruct) !=
+        HAL_OK)
+    {
+        Error_Handler();
+    }
+
+
+    __HAL_RCC_PWR_CLK_ENABLE();
+
+
+    __HAL_PWR_VOLTAGESCALING_CONFIG(
+        PWR_REGULATOR_VOLTAGE_SCALE1
+    );
+
+
+    while (__HAL_PWR_GET_FLAG(
+               PWR_FLAG_VOS) !=
+           RESET)
+    {
+    }
+
+
+    RCC_ClkInitStruct.ClockType =
+        RCC_CLOCKTYPE_SYSCLK |
+        RCC_CLOCKTYPE_HCLK |
+        RCC_CLOCKTYPE_PCLK1 |
+        RCC_CLOCKTYPE_PCLK2;
+
+
+    RCC_ClkInitStruct.SYSCLKSource =
+        RCC_SYSCLKSOURCE_PLLCLK;
+
+
+    RCC_ClkInitStruct.AHBCLKDivider =
+        RCC_SYSCLK_DIV1;
+
+
+    RCC_ClkInitStruct.APB1CLKDivider =
+        RCC_HCLK_DIV1;
+
+
+    RCC_ClkInitStruct.APB2CLKDivider =
+        RCC_HCLK_DIV1;
+
+
+    if (HAL_RCC_ClockConfig(
+            &RCC_ClkInitStruct,
+            FLASH_LATENCY_1) !=
+        HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Error handler                                                              */
+/* -------------------------------------------------------------------------- */
+
+static void Error_Handler(void)
+{
+    /*
+     * Deselect both SPI devices.
+     */
+    HAL_GPIO_WritePin(
+        GPIOA,
+        GPIO_PIN_4,
+        GPIO_PIN_SET
+    );
+
+
+    HAL_GPIO_WritePin(
+        MCP23S17_CS_GPIO_PORT,
+        MCP23S17_CS_PIN,
+        GPIO_PIN_SET
+    );
+
+
+    while (1)
+    {
+    }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Assert failed                                                              */
+/* -------------------------------------------------------------------------- */
+
+#ifdef USE_FULL_ASSERT
+
+void assert_failed(
+    uint8_t *file,
+    uint32_t line)
+{
+    (void)file;
+    (void)line;
+
+
+    while (1)
+    {
+    }
+}
+
+#endif
