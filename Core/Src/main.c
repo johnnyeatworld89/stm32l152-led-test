@@ -17,21 +17,8 @@
 /* Configuration                                                              */
 /* -------------------------------------------------------------------------- */
 
-/*
- * MCP23S17 hardware address:
- *
- * A2 = GND
- * A1 = GND
- * A0 = GND
- */
 #define MCP23S17_HW_ADDRESS            0U
 
-
-/*
- * MCP23S17 chip-select:
- *
- * STM32 PB6 -> MCP23S17 CS
- */
 #define MCP23S17_CS_GPIO_PORT          GPIOB
 #define MCP23S17_CS_PIN                GPIO_PIN_6
 
@@ -48,14 +35,16 @@
 #define ENCODER_BUTTON_DEBOUNCE_MS     30U
 #define SHIFT_DEBOUNCE_MS              30U
 
-#define MCP23S17_REG_IODIRB  0x01U
-#define MCP23S17_REG_GPPUB   0x0DU
-#define MCP23S17_REG_GPIOB   0x13U
 
-volatile uint8_t debugMcpIodirB = 0U;
-volatile uint8_t debugMcpGppuB = 0U;
-volatile uint8_t debugMcpGpioB = 0U;
-volatile uint8_t debugMcpReadOk = 0U;
+/*
+ * MCP23S17 registers used for diagnostics.
+ *
+ * Register map with IOCON.BANK = 0.
+ */
+#define MCP23S17_TEST_REG_IODIRB       0x01U
+#define MCP23S17_TEST_REG_GPPUB        0x0DU
+#define MCP23S17_TEST_REG_GPIOB        0x13U
+
 
 /* -------------------------------------------------------------------------- */
 /* Global peripheral handles                                                  */
@@ -110,15 +99,22 @@ static uint32_t shiftLastChangeTick = 0U;
 static uint8_t shiftInitialized = 0U;
 
 
+/* -------------------------------------------------------------------------- */
+/* Diagnostic variables                                                       */
+/* -------------------------------------------------------------------------- */
+
 /*
- * Debug variable:
- *
- * Observe this variable in the debugger.
- *
- * 0 = Shift not pressed
- * 1 = Shift pressed
+ * These variables can later also be inspected
+ * through SWD or printed through UART.
  */
 volatile uint8_t debugShiftPressed = 0U;
+
+volatile uint8_t debugMcpIODIRB = 0U;
+volatile uint8_t debugMcpGPPUB = 0U;
+volatile uint8_t debugMcpGPIOB = 0U;
+
+volatile uint8_t debugMcpInitOk = 0U;
+volatile uint8_t debugMcpReadOk = 0U;
 
 
 /* -------------------------------------------------------------------------- */
@@ -183,10 +179,10 @@ static void Encoder_Init(void)
 /* Rotary encoder polling                                                     */
 /* -------------------------------------------------------------------------- */
 
-static void Encoder_Update(void)
+static void Encoder_Update(void*
 {
     uint8_t encoderA =
-        (HAL_GPIO_ReadPin(
+        *HAL_GPIO_ReadPin(
             GPIOC,
             GPIO_PIN_1
         ) == GPIO_PIN_SET) ?
@@ -251,18 +247,17 @@ static void Encoder_Update(void)
 
 
     /*
-     * One mechanical detent corresponds to
-     * four valid quadrature transitions.
+     * One encoder detent corresponds to four
+     * valid quadrature transitions.
      */
     while (encoderAccumulator >= 4)
     {
         encoderAccumulator -= 4;
 
         /*
-         * Shift is not yet used for vertical movement.
-         *
-         * The existing horizontal UI behavior remains
-         * unchanged during the MCP23S17 test.
+         * Shift is not yet used for vertical
+         * movement. Existing horizontal behavior
+         * remains active during this hardware test.
          */
         UI_HandleEncoderStep(1);
     }
@@ -317,8 +312,8 @@ static void Button_Update(void)
 
 
     /*
-     * The raw state changed.
-     * Restart the debounce timer.
+     * Raw state changed:
+     * restart debounce timer.
      */
     if (currentRawState !=
         buttonRawState)
@@ -333,7 +328,7 @@ static void Button_Update(void)
 
     /*
      * Accept the new state after it has remained
-     * unchanged for the debounce period.
+     * stable for the debounce period.
      */
     if ((currentTick -
          buttonLastChangeTick) >=
@@ -347,10 +342,10 @@ static void Button_Update(void)
 
 
             /*
-             * The encoder button is active-low.
+             * Encoder button is active-low.
              *
-             * Only the confirmed press transition
-             * toggles the grab state.
+             * Only a confirmed press toggles
+             * the grab state.
              */
             if (buttonStableState ==
                 GPIO_PIN_RESET)
@@ -371,9 +366,13 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
     HAL_StatusTypeDef status;
 
 
+    debugMcpInitOk = 0U;
+    debugMcpReadOk = 0U;
+
+
     /*
-     * Ensure that the display is not selected
-     * during MCP23S17 communication.
+     * Ensure that neither SPI device is selected
+     * before initialization starts.
      */
     HAL_GPIO_WritePin(
         GPIOA,
@@ -382,8 +381,17 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
     );
 
 
+    HAL_GPIO_WritePin(
+        MCP23S17_CS_GPIO_PORT,
+        MCP23S17_CS_PIN,
+        GPIO_PIN_SET
+    );
+
+
     /*
-     * Initialize MCP23S17 instance.
+     * Initialize MCP23S17.
+     *
+     * A2:A0 = 000.
      */
     status =
         MCP23S17_Init(
@@ -419,7 +427,7 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
 
 
     /*
-     * Do not invert the GPB7 input polarity.
+     * Do not invert GPB7.
      */
     status =
         MCP23S17_SetInputPolarity(
@@ -437,7 +445,8 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
 
 
     /*
-     * Enable the internal pull-up for GPB7.
+     * Enable the MCP23S17 internal pull-up
+     * for GPB7.
      *
      * Button open:
      * GPB7 = HIGH
@@ -461,7 +470,60 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
 
 
     /*
-     * Read the actual initial state.
+     * Read back configuration registers.
+     *
+     * Expected:
+     *
+     * IODIRB = 0xFF
+     * GPPUB bit 7 = 1
+     */
+    status =
+        MCP23S17_Re*dRegister(
+            &mcp23s17_1*
+            MCP23S17_TEST_REG_IOD*RB,
+            (uint8_t *)&debugM*pIODIRB
+        );
+
+
+    if (statu* != HAL_OK)
+    {
+        return status;
+    }
+
+
+    status =
+        MCP23S17_ReadRegister(
+            &mcp23s17_1,
+            MCP23S17_TEST_REG_GPPUB,
+            (uint8_t *)&debugMcpGPPUB
+        );
+
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    status =
+        MCP23S17_ReadRegister(
+            &mcp23s17_1,
+            MCP23S17_TEST_REG_GPIOB,
+            (uint8_t *)&debugMcpGPIOB
+        );
+
+
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+
+    debugMcpReadOk = 1U;
+
+
+    /*
+     * Read the initial GPB7 pin state.
      */
     uint8_t pinState = 1U;
 
@@ -482,8 +544,8 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
 
 
     /*
-     * Convert the electrical active-low signal
-     * into the logical Shift state.
+     * Convert active-low input into logical
+     * Shift state.
      */
     shiftRawState =
         (pinState == 0U) ?
@@ -501,42 +563,10 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
 
     shiftInitialized = 1U;
 
-
     debugShiftPressed =
         shiftStableState;
 
-UI_SetShiftDebugState(
-    pinState == 0U ? 1U : 0U
-);
-
- if (MCP23S17_ReadRegister(
-        &mcp23s17_1,
-        MCP23S17_REG_IODIRB,
-        (uint8_t *)&debugMcpIodirB) != HAL_OK)
-{
-    return HAL_ERROR;
-}
-
-
-if (MCP23S17_ReadRegister(
-        &mcp23s17_1,
-        MCP23S17_REG_GPPUB,
-        (uint8_t *)&debugMcpGppuB) != HAL_OK)
-{
-    return HAL_ERROR;
-}
-
-
-if (MCP23S17_ReadRegister(
-        &mcp23s17_1,
-        MCP23S17_REG_GPIOB,
-        (uint8_t *)&debugMcpGpioB) != HAL_OK)
-{
-    return HAL_ERROR;
-}
-
-
-debugMcpReadOk = 1U;
+    debugMcpInitOk = 1U;
 
 
     return HAL_OK;
@@ -555,12 +585,9 @@ static void Shift_Update(void)
     }
 
 
-    uint8_t pinState = 1U;
-
-
     /*
-     * Ensure that the display is deselected before
-     * accessing the MCP23S17.
+     * Ensure that the display remains deselected
+     * while the MCP23S17 is accessed.
      */
     HAL_GPIO_WritePin(
         GPIOA,
@@ -569,29 +596,48 @@ static void Shift_Update(void)
     );
 
 
+    uint8_t gpioB = 0xFFU;
+
+
     HAL_StatusTypeDef status =
-        MCP23S17_ReadPin(
+        MCP23S17_ReadPort(
             &mcp23s17_1,
-            SHIFT_MCP_PORT,
-            SHIFT_MCP_PIN,
-            &pinState
+            MCP23S17_PORT_B,
+            &gpioB
         );
 
 
     /*
-     * Retain the previous stable state if an SPI
-     * communication error occurs.
+     * Keep the previous state if reading failed.
      */
     if (status != HAL_OK)
     {
+        debugMcpReadOk = 0U;
+
         return;
     }
 
 
+    debugMcpReadOk = 1U;
+    debugMcpGPIOB = gpioB;
+
+
     /*
-     * Convert active-low GPB7 into a logical
-     * pressed state.
+     * Extract GPB7.
+     *
+     * GPB7 HIGH:
+     * Shift not pressed.
+     *
+     * GPB7 LOW:
+     * Shift pressed.
      */
+    uint8_t pinState =
+        (*pioB &
+         (uint8_t)(1U << SH*FT_MCP_PIN)) ?
+        1U :
+        0U;
+
+
     uint8_t currentPressedState =
         (pinState == 0U) ?
         1U :
@@ -618,14 +664,27 @@ static void Shift_Update(void)
 
 
     /*
-     * Accept the new state after 30 ms.
+     * Update the stable state after the debounce
+     * period has expired.
      */
     if ((currentTick -
          shiftLastChangeTick) >=
         SHIFT_DEBOUNCE_MS)
     {
-        shiftStableState =
-            shiftRawState;
+        if (shiftStableState !=
+            shiftRawState)
+        {
+            shiftStableState =
+                shiftRawState;
+
+
+            /*
+             * Redraw only the small Shift indicator.
+             */
+            UI_SetShiftDebugState(
+                shiftStableState
+            );
+        }
     }
 
 
@@ -656,95 +715,79 @@ static uint8_t Shift_IsPressed(void)
 
 int main(void)
 {
-    /* ---------------------------------------------------------------------- */
-    /* HAL initialization                                                     */
-    /* ---------------------------------------------------------------------- */
-
     HAL_Init();
 
-
-    /* ---------------------------------------------------------------------- */
-    /* System clock                                                           */
-    /* ---------------------------------------------------------------------- */
 
     SystemClock_Config();
 
 
-    /* ---------------------------------------------------------------------- */
-    /* Hardware initialization                                                */
-    /* ---------------------------------------------------------------------- */
-
     MX_GPIO_Init();
+
     MX_SPI1_Init();
 
 
-    /*
-     * Initialize the encoder and encoder button
-     * from their actual electrical states.
-     */
     Encoder_Init();
+
     Button_Init();
 
 
     /*
-     * Allow the external hardware to stabilize.
+     * Allow the external hardware and reset
+     * pull-up to stabilize.
      */
     HAL_Delay(200);
 
 
-    /* ---------------------------------------------------------------------- */
-    /* MCP23S17 initialization                                                */
-    /* ---------------------------------------------------------------------- */
-
-    if (MCP23S17_ApplicationInit() !=
-        HAL_OK)
-    {
-        Error_Handler();
-    }
-
-
-    /* ---------------------------------------------------------------------- */
-    /* Display initialization                                                 */
-    /* ---------------------------------------------------------------------- */
-
+    /*
+     * Initialize the display before the MCP test
+     * so that the UI is available for diagnostics.
+     */
     ST7735_Init();
 
     ST7735_SetRotation(1);
 
 
-    /* ---------------------------------------------------------------------- */
-    /* User interface initialization                                          */
-    /* ---------------------------------------------------------------------- */
-
     UI_Init();
 
     UI_Draw();
 
-    UI_SetShiftDebugState(
-     Shift_IsPressed()
-    );
 
+    /*
+     * Initialize the MCP23S17 after the UI has
+     * been drawn.
+     */
+    if (MCP23S17_ApplicationInit() !=
+        HAL_OK)
+    {
+        /*
+         * Keep the UI running with Shift inactive.
+         *
+         * The diagnostic variables remain zero.
+         */
+        shiftInitialized = 0U;
+        shiftRawState = 0U;
+        shiftStableState = 0U;
 
-    /* ---------------------------------------------------------------------- */
-    /* Main loop                                                              */
-    /* ---------------------------------------------------------------------- */
+        debugShiftPressed = 0U;
+        debugMcpInitOk = 0U;
+
+        UI_SetShiftDebugState(0U);
+    }
+    else
+    {
+        UI_SetShiftDebugState(
+            Shift_IsPressed()
+        );
+    }
+
 
     while (1)
     {
         /*
-         * Update Shift first so that the latest
-         * stable state is available when the encoder
-         * is evaluated.
+         * Poll the MCP23S17 before evaluating
+         * the encoder.
          */
         Shift_Update();
-
-
-        /*
-         * This assignment is currently only used
-         * for the debugger test.
-         */
-        debugShiftPressed =
-            Shift_IsPressed();
 
 
         Encoder_Update();
@@ -766,10 +809,6 @@ static void MX_GPIO_Init(void)
     };
 
 
-    /* ---------------------------------------------------------------------- */
-    /* Enable GPIO clocks                                                     */
-    /* ---------------------------------------------------------------------- */
-
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -780,8 +819,7 @@ static void MX_GPIO_Init(void)
     /* ---------------------------------------------------------------------- */
 
     /*
-     * Display CS high:
-     * display not selected.
+     * Display CS high.
      */
     HAL_GPIO_WritePin(
         GPIOA,
@@ -811,8 +849,7 @@ static void MX_GPIO_Init(void)
 
 
     /*
-     * MCP23S17 CS high:
-     * MCP23S17 not selected.
+     * MCP23S17 CS high.
      */
     HAL_GPIO_WritePin(
         MCP23S17_CS_GPIO_PORT,
@@ -902,287 +939,4 @@ static void MX_GPIO_Init(void)
 
 
     /* ---------------------------------------------------------------------- */
-    /* Rotary encoder                                                         */
-    /*                                                                        */
-    /* PA0 = encoder switch                                                   */
-    /* PA1 = encoder B                                                        */
-    /* PC1 = encoder A                                                        */
-    /* ---------------------------------------------------------------------- */
-
-    GPIO_InitStruct.Pin =
-        GPIO_PIN_0 |
-        GPIO_PIN_1;
-
-    GPIO_InitStruct.Mode =
-        GPIO_MODE_INPUT;
-
-    GPIO_InitStruct.Pull =
-        GPIO_PULLUP;
-
-
-    HAL_GPIO_Init(
-        GPIOA,
-        &GPIO_InitStruct
-    );
-
-
-    GPIO_InitStruct.Pin =
-        GPIO_PIN_1;
-
-    GPIO_InitStruct.Mode =
-        GPIO_MODE_INPUT;
-
-    GPIO_InitStruct.Pull =
-        GPIO_PULLUP;
-
-
-    HAL_GPIO_Init(
-        GPIOC,
-        &GPIO_InitStruct
-    );
-}
-
-
-/* -------------------------------------------------------------------------- */
-/* SPI1 initialization                                                        */
-/* -------------------------------------------------------------------------- */
-
-static void MX_SPI1_Init(void)
-{
-    __HAL_RCC_SPI1_CLK_ENABLE();
-
-
-    hspi1.Instance =
-        SPI1;
-
-
-    hspi1.Init.Mode =
-        SPI_MODE_MASTER;
-
-
-    /*
-     * The display only transmits through MOSI.
-     *
-     * The MCP23S17 also requires MISO, therefore
-     * SPI1 must use the normal two-line mode.
-     */
-    hspi1.Init.Direction =
-        SPI_DIRECTION_2LINES;
-
-
-    hspi1.Init.DataSize =
-        SPI_DATASIZE_8BIT;
-
-
-    hspi1.Init.CLKPolarity =
-        SPI_POLARITY_LOW;
-
-
-    hspi1.Init.CLKPhase =
-        SPI_PHASE_1EDGE;
-
-
-    hspi1.Init.NSS =
-        SPI_NSS_SOFT;
-
-
-    /*
-     * System clock = 32 MHz
-     * Prescaler     = 16
-     * SPI clock     = approximately 2 MHz
-     */
-    hspi1.Init.BaudRatePrescaler =
-        SPI_BAUDRATEPRESCALER_16;
-
-
-    hspi1.Init.FirstBit =
-        SPI_FIRSTBIT_MSB;
-
-
-    hspi1.Init.TIMode =
-        SPI_TIMODE_DISABLED;
-
-
-    hspi1.Init.CRCCalculation =
-        SPI_CRCCALCULATION_DISABLED;
-
-
-    hspi1.Init.CRCPolynomial =
-        7;
-
-
-    if (HAL_SPI_Init(&hspi1) !=
-        HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-
-/* -------------------------------------------------------------------------- */
-/* System clock configuration                                                 */
-/* -------------------------------------------------------------------------- */
-
-void SystemClock_Config(void)
-{
-    RCC_ClkInitTypeDef RCC_ClkInitStruct =
-    {
-        0
-    };
-
-
-    RCC_OscInitTypeDef RCC_OscInitStruct =
-    {
-        0
-    };
-
-
-    /* ---------------------------------------------------------------------- */
-    /* HSI configuration                                                      */
-    /* ---------------------------------------------------------------------- */
-
-    RCC_OscInitStruct.OscillatorType =
-        RCC_OSCILLATORTYPE_HSI;
-
-
-    RCC_OscInitStruct.HSIState =
-        RCC_HSI_ON;
-
-
-    RCC_OscInitStruct.HSICalibrationValue =
-        RCC_HSICALIBRATION_DEFAULT;
-
-
-    /* ---------------------------------------------------------------------- */
-    /* PLL configuration                                                      */
-    /* ---------------------------------------------------------------------- */
-
-    RCC_OscInitStruct.PLL.PLLState =
-        RCC_PLL_ON;
-
-
-    RCC_OscInitStruct.PLL.PLLSource =
-        RCC_PLLSOURCE_HSI;
-
-
-    RCC_OscInitStruct.PLL.PLLMUL =
-        RCC_PLL_MUL6;
-
-
-    RCC_OscInitStruct.PLL.PLLDIV =
-        RCC_PLL_DIV3;
-
-
-    if (HAL_RCC_OscConfig(
-            &RCC_OscInitStruct) !=
-        HAL_OK)
-    {
-        Error_Handler();
-    }
-
-
-    /* ---------------------------------------------------------------------- */
-    /* Power configuration                                                    */
-    /* ---------------------------------------------------------------------- */
-
-    __HAL_RCC_PWR_CLK_ENABLE();
-
-
-    __HAL_PWR_VOLTAGESCALING_CONFIG(
-        PWR_REGULATOR_VOLTAGE_SCALE1
-    );
-
-
-    while (__HAL_PWR_GET_FLAG(
-               PWR_FLAG_VOS) !=
-           RESET)
-    {
-    }
-
-
-    /* ---------------------------------------------------------------------- */
-    /* Clock configuration                                                    */
-    /* ---------------------------------------------------------------------- */
-
-    RCC_ClkInitStruct.ClockType =
-        RCC_CLOCKTYPE_SYSCLK |
-        RCC_CLOCKTYPE_HCLK |
-        RCC_CLOCKTYPE_PCLK1 |
-        RCC_CLOCKTYPE_PCLK2;
-
-
-    RCC_ClkInitStruct.SYSCLKSource =
-        RCC_SYSCLKSOURCE_PLLCLK;
-
-
-    RCC_ClkInitStruct.AHBCLKDivider =
-        RCC_SYSCLK_DIV1;
-
-
-    RCC_ClkInitStruct.APB1CLKDivider =
-        RCC_HCLK_DIV1;
-
-
-    RCC_ClkInitStruct.APB2CLKDivider =
-        RCC_HCLK_DIV1;
-
-
-    if (HAL_RCC_ClockConfig(
-            &RCC_ClkInitStruct,
-            FLASH_LATENCY_1) !=
-        HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-
-/* -------------------------------------------------------------------------- */
-/* Error handler                                                              */
-/* -------------------------------------------------------------------------- */
-
-static void Error_Handler(void)
-{
-    /*
-     * Deselect both SPI devices.
-     */
-    HAL_GPIO_WritePin(
-        GPIOA,
-        GPIO_PIN_4,
-        GPIO_PIN_SET
-    );
-
-
-    HAL_GPIO_WritePin(
-        MCP23S17_CS_GPIO_PORT,
-        MCP23S17_CS_PIN,
-        GPIO_PIN_SET
-    );
-
-
-    while (1)
-    {
-    }
-}
-
-
-/* -------------------------------------------------------------------------- */
-/* Assert failed                                                              */
-/* -------------------------------------------------------------------------- */
-
-#ifdef USE_FULL_ASSERT
-
-void assert_failed(
-    uint8_t *file,
-    uint32_t line)
-{
-    (void)file;
-    (void)line;
-
-
-    while (1)
-    {
-    }
-}
-
-#endif
+    /* Encoder inputs  
