@@ -3363,6 +3363,42 @@ else
 /* Vertical movement of grabbed item                                          */
 /* -------------------------------------------------------------------------- */
 
+static void UI_InsertOrderBefore(
+    int16_t insertionOrder,
+    int16_t excludedItemIndex)
+{
+    /*
+     * Alle permanenten Items ab der Einfügeposition
+     * werden eine Order nach rechts verschoben.
+     *
+     * Das gegriffene Item wird ausgeschlossen,
+     * weil dessen endgültige Position anschließend
+     * separat gesetzt wird.
+     */
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if ((int16_t)i ==
+            excludedItemIndex)
+        {
+            continue;
+        }
+
+        if (!UI_IsPermanentItem(
+                &uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order >=
+            insertionOrder)
+        {
+            uiItems[i].order++;
+        }
+    }
+}
+
 static void UI_MoveGrabbedVertical(
     int8_t direction)
 {
@@ -3419,7 +3455,7 @@ static void UI_MoveGrabbedVertical(
      */
     int16_t targetLane =
         grabbedItem->lane +
-        ((direction > 0) ? 1 : -1);
+        ((direction > 0) ? -1 : 1);
 
 
     /*
@@ -3470,45 +3506,89 @@ static void UI_MoveGrabbedVertical(
 
 
     if (targetPermanentIndex >= 0)
+{
+    /*
+     * Regel 2.6:
+     *
+     * In der angrenzenden Zielposition befindet
+     * sich ein permanentes Item.
+     *
+     * Das gegriffene Item wird nicht mit diesem
+     * Item getauscht. Es wird stattdessen rechts
+     * neben diesem Item platziert.
+     */
+    const UI_Item *adjacentItem =
+        &uiItems[targetPermanentIndex];
+
+
+    int16_t destinationOrder =
+        adjacentItem->order + 1;
+
+    int16_t destinationLane =
+        adjacentItem->lane;
+
+
+    /*
+     * Prüfen, ob die gewünschte Position rechts
+     * neben dem angrenzenden Item bereits durch
+     * ein anderes permanentes Item belegt ist.
+     */
+    int16_t destinationItemIndex =
+        UI_FindPermanentItemAt(
+            destinationOrder,
+            destinationLane,
+            grabbedIndex
+        );
+
+
+    if (destinationItemIndex >= 0)
     {
         /*
-         * Die Zielposition ist durch ein permanentes
-         * Item belegt.
+         * Zielposition belegt:
          *
-         * Beide Items tauschen ihre Lanes.
+         * Vor der Zielposition wird eine neue
+         * Order eingefügt. Alle permanenten Items
+         * ab dieser Order wandern nach rechts.
          *
-         * Die Order beider Items bleibt unverändert.
+         * Das gegriffene Item sitzt anschließend
+         * allein in der neu erzeugten Spalte.
          */
-        int16_t grabbedOldLane =
-            grabbedItem->lane;
-
-        int16_t targetOldLane =
-            uiItems[
-                targetPermanentIndex
-            ].lane;
-
-
-        uiItems[
-            targetPermanentIndex
-        ].lane =
-            grabbedOldLane;
-
-
-        grabbedItem->lane =
-            targetOldLane;
+        UI_InsertOrderBefore(
+            destinationOrder,
+            grabbedIndex
+        );
     }
-    else
-    {
-        /*
-         * Die Zielposition ist frei oder enthält
-         * lediglich einen automatischen Knoten.
-         *
-         * Das gegriffene Item übernimmt die
-         * gewünschte Lane.
-         */
-        grabbedItem->lane =
-            targetLane;
-    }
+
+
+    /*
+     * In beiden Fällen nimmt das gegriffene Item
+     * die Position rechts vom angrenzenden Item ein.
+     *
+     * Falls eine neue Order eingefügt wurde, ist
+     * destinationOrder nun genau diese neue Order.
+     */
+    grabbedItem->order =
+        destinationOrder;
+
+    grabbedItem->lane =
+        destinationLane;
+}
+else
+{
+    /*
+     * Regel 2.5:
+     *
+     * Die angrenzende vertikale Zielposition ist
+     * frei oder enthält nur einen automatischen
+     * Knoten.
+     *
+     * Das Item bleibt in seiner Order und übernimmt
+     * lediglich die neue Lane.
+     */
+    grabbedItem->lane =
+        targetLane;
+}
+
 
 
     /*
@@ -3519,6 +3599,26 @@ static void UI_MoveGrabbedVertical(
      * Entwicklungsschritt noch nicht erzeugt.
      */
     UI_RemoveAllAutoNodes();
+/*
+ * Durch das Versetzen nach rechts kann die
+ * ursprüngliche Spalte des gegriffenen Items
+ * vollständig leer geworden sein.
+ *
+ * Leere Spalten entfernen und Orders lückenlos
+ * normalisieren.
+ */
+UI_NormalizeOrders();
+
+
+/*
+ * Sicherstellen, dass weiterhin ausschließlich
+ * Inputs links und Outputs rechts liegen.
+ *
+ * Das kann insbesondere relevant werden, wenn
+ * durch Regel 2.6 eine zusätzliche Spalte direkt
+ * vor der Output-Spalte entsteht.
+ */
+UI_EnsureEdgeColumns();
 
 
     /*
