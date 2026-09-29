@@ -152,7 +152,7 @@ static UI_Item uiItems[] =
         .focus = UI_FOCUS_NONE,
         .shortName = "L06",
         .longName = "LOOP 6"
-    }
+    },
 
     /*
      * Reserve pool for dynamically created
@@ -202,7 +202,7 @@ static UI_Item uiItems[] =
         .focus = UI_FOCUS_NONE,
         .shortName = "N13",
         .longName = "Node 13"
-    }
+    },
 
 };
 
@@ -323,6 +323,11 @@ static int16_t UI_FindNextRoutingItemIndex(
 );
 
 static uint8_t UI_RebuildCalculatedConnections(void);
+
+static void UI_InsertOrderBefore(
+    int16_t insertionOrder,
+    int16_t excludedItemIndex
+);
 
 static int16_t UI_FindInactiveManualNodeIndex(void);
 
