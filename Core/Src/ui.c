@@ -153,6 +153,57 @@ static UI_Item uiItems[] =
         .shortName = "L06",
         .longName = "LOOP 6"
     }
+
+    /*
+     * Reserve pool for dynamically created
+     * manual nodes.
+     *
+     * order < 0 means inactive.
+     */
+    {
+        .id = 100,
+        .type = UI_ITEM_MANUAL_NODE,
+        .order = -100,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "N10",
+        .longName = "Node 10"
+    },
+
+    {
+        .id = 101,
+        .type = UI_ITEM_MANUAL_NODE,
+        .order = -100,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "N11",
+        .longName = "Node 11"
+    },
+
+    {
+        .id = 102,
+        .type = UI_ITEM_MANUAL_NODE,
+        .order = -100,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "N12",
+        .longName = "Node 12"
+    },
+
+    {
+        .id = 103,
+        .type = UI_ITEM_MANUAL_NODE,
+        .order = -100,
+        .lane = 0,
+        .loopStatus = UI_LOOP_STATUS_OFF,
+        .focus = UI_FOCUS_NONE,
+        .shortName = "N13",
+        .longName = "Node 13"
+    }
+
 };
 
 
@@ -273,7 +324,9 @@ static int16_t UI_FindNextRoutingItemIndex(
 
 static uint8_t UI_RebuildCalculatedConnections(void);
 
+static int16_t UI_FindInactiveManualNodeIndex(void);
 
+static uint8_t UI_CreateManualNodeRightOfSelection(void);
 
 typedef struct
 {
@@ -1259,6 +1312,11 @@ static uint8_t UI_IsSelectable(
         return 0;
     }
 
+if (item->order < 0)
+{
+    return 0;
+}
+    
     switch (item->type)
     {
         case UI_ITEM_INPUT:
@@ -1281,6 +1339,12 @@ static uint8_t UI_IsPermanentItem(
         return 0;
     }
 
+if (item->order < 0)
+{
+    return 0;
+}
+
+    
     switch (item->type)
     {
         case UI_ITEM_INPUT:
@@ -2865,6 +2929,40 @@ void UI_ToggleGrab(void)
     UI_DrawFooter();
 }
 
+void UI_HandleEncoderButton(
+    uint8_t shiftPressed)
+{
+    /*
+     * Shift + Klick funktioniert nur bei einem
+     * lediglich ausgewählten, nicht gegriffenen
+     * Item.
+     */
+    if (shiftPressed &&
+        !UI_IsGrabbed())
+    {
+        (void)UI_CreateManualNodeRightOfSelection();
+
+        return;
+    }
+
+
+    /*
+     * Ohne Shift bleibt das bisherige Verhalten:
+     *
+     * SELECTED ↔ GRABBED
+     */
+    if (!shiftPressed)
+    {
+        UI_ToggleGrab();
+    }
+
+
+    /*
+     * Shift + Klick bei bereits gegriffenem Item:
+     * vorerst keine Aktion.
+     */
+}
+
 /* -------------------------------------------------------------------------- */
 /* Movement snapshots                                                         */
 /* -------------------------------------------------------------------------- */
@@ -3000,6 +3098,259 @@ UI_PermanentStructureChangedSincePreviousStep(void)
     return 0;
 }
 
+
+static int16_t UI_FindInactiveManualNodeIndex(void)
+{
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        if (uiItems[i].type !=
+            UI_ITEM_MANUAL_NODE)
+        {
+            continue;
+        }
+
+        /*
+         * Negative Order bedeutet:
+         * Reserveknoten ist derzeit inaktiv.
+         */
+        if (uiItems[i].order < 0)
+        {
+            return (int16_t)i;
+        }
+    }
+
+    return -1;
+}
+
+static uint8_t UI_CreateManualNodeRightOfSelection(void)
+{
+    /*
+     * Diese Funktion darf nur ausgeführt werden,
+     * wenn kein Item gegriffen ist.
+     */
+    if (UI_IsGrabbed())
+    {
+        return 0;
+    }
+
+
+    int16_t selectedIndex =
+        UI_GetFocusedIndex();
+
+
+    if (selectedIndex < 0)
+    {
+        return 0;
+    }
+
+
+    const UI_Item *selectedItem =
+        &uiItems[selectedIndex];
+
+
+    if (!UI_IsSelectable(selectedItem))
+    {
+        return 0;
+    }
+
+
+    /*
+     * Rechts von OUT darf kein manueller Knoten
+     * entstehen, weil OUT die äußerste rechte
+     * permanente Spalte bilden muss.
+     */
+    if (selectedItem->type ==
+        UI_ITEM_OUTPUT)
+    {
+        return 0;
+    }
+
+
+    int16_t newNodeIndex =
+        UI_FindInactiveManualNodeIndex();
+
+
+    /*
+     * Kein freier Reserveknoten vorhanden.
+     */
+    if (newNodeIndex < 0)
+    {
+        return 0;
+    }
+
+
+    int16_t targetOrder =
+        selectedItem->order + 1;
+
+    int16_t targetLane =
+        selectedItem->lane;
+
+
+    if (targetOrder < 0 ||
+        targetOrder >=
+            UI_MAX_ORDER_COUNT)
+    {
+        return 0;
+    }
+
+
+    /*
+     * Prüfen, ob die konkrete Position rechts
+     * vom ausgewählten Item durch ein permanentes
+     * Item belegt ist.
+     */
+    int16_t targetPermanentIndex =
+        UI_FindPermanentItemAt(
+            targetOrder,
+            targetLane,
+            newNodeIndex
+        );
+
+
+    /*
+     * Vor jeder Strukturänderung:
+     *
+     * - Itemzustände
+     * - alte Geometrie
+     * - alte Verbindungen
+     * - Viewport
+     *
+     * sichern.
+     */
+    UI_SavePreviousStepState();
+
+
+    if (targetPermanentIndex >= 0)
+    {
+        /*
+         * Zielposition enthält ein permanentes Item.
+         *
+         * Vor der Zielorder wird eine neue Spalte
+         * erzeugt. Alle permanenten Items ab dieser
+         * Order wandern nach rechts.
+         *
+         * Der neue manuelle Knoten wird von der
+         * Verschiebung ausgeschlossen.
+         */
+        UI_InsertOrderBefore(
+            targetOrder,
+            newNodeIndex
+        );
+    }
+
+
+    /*
+     * Sämtliche automatischen Knoten entfernen.
+     *
+     * Dadurch wird auch ein eventuell genau auf
+     * der Zielposition liegender Auto-Knoten
+     * verdrängt.
+     */
+    UI_RemoveAllAutoNodes();
+
+
+    /*
+     * Reserveknoten aktivieren.
+     */
+    uiItems[newNodeIndex].order =
+        targetOrder;
+
+    uiItems[newNodeIndex].lane =
+        targetLane;
+
+    uiItems[newNodeIndex].focus =
+        UI_FOCUS_NONE;
+
+    uiItems[newNodeIndex].loopStatus =
+        UI_LOOP_STATUS_OFF;
+
+
+    /*
+     * Leere Spalten entfernen und Orders
+     * normalisieren.
+     *
+     * Normalerweise entsteht hier keine Lücke,
+     * die Funktion hält die Struktur aber robust.
+     */
+    UI_NormalizeOrders();
+
+
+    /*
+     * IN-/OUT-Randspalten herstellen.
+     *
+     * Besonders relevant, wenn der neue Knoten
+     * direkt vor einem OUT eingefügt wird.
+     */
+    UI_EnsureEdgeColumns();
+
+
+    if (!UI_ValidateEdgeRules())
+    {
+        UI_RestorePreviousStepState();
+
+        UI_RebuildCalculatedConnections();
+
+        return 0;
+    }
+
+
+    /*
+     * Pfeile aus der neuen Struktur berechnen.
+     *
+     * Noch erforderliche automatische Knoten
+     * werden weiterhin nicht erzeugt. An diesen
+     * Stellen bleibt der Pfad offen.
+     */
+    if (!UI_RebuildCalculatedConnections())
+    {
+        UI_RestorePreviousStepState();
+
+        UI_RebuildCalculatedConnections();
+
+        return 0;
+    }
+
+
+    /*
+     * Den neuen Knoten sichtbar halten.
+     *
+     * Falls durch das Einfügen einer neuen Order
+     * horizontal gescrollt werden muss, folgt der
+     * Viewport dem neuen Knoten.
+     */
+    uint8_t viewportChanged =
+        UI_EnsureItemVisible(
+            newNodeIndex
+        );
+
+
+    if (viewportChanged)
+    {
+        /*
+         * Alle sichtbaren X-Positionen haben sich
+         * verändert.
+         */
+        UI_Draw();
+    }
+    else
+    {
+        /*
+         * Struktur lokal aktualisieren.
+         *
+         * UI_ItemPositionChanged() erkennt den
+         * neuen Knoten anhand:
+         *
+         * vorher order < 0
+         * nachher order >= 0
+         */
+        UI_UpdateChangedStructureDisplay();
+    }
+
+
+    return 1;
+}
 
 static void UI_MoveGrabbedHorizontal(
     int8_t direction)
