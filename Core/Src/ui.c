@@ -69,13 +69,17 @@
 #define UI_MENU_X                    8U
 #define UI_MENU_Y                    8U
 #define UI_MENU_WIDTH              144U
-#define UI_MENU_HEIGHT              72U
+#define UI_MENU_HEIGHT              80U
 #define UI_MENU_ROW_HEIGHT          24U
 #define UI_MENU_TEXT_X_OFFSET        8U
 #define UI_MENU_TEXT_Y_OFFSET        8U
-#define UI_MENU_ROOT_ROW_COUNT       2U
 #define UI_MENU_GENERAL_ROW          0U
 #define UI_MENU_ITEM_ROW             1U
+#define UI_MENU_DELETE_NODE_ROW      2U
+
+#define UI_MENU_CONFIRM_TITLE_ROW    0U
+#define UI_MENU_CONFIRM_CANCEL_ROW   1U
+#define UI_MENU_CONFIRM_DELETE_ROW   2U
 
 static UI_Item uiItems[] =
 {
@@ -562,6 +566,9 @@ static void UI_CloseMenu(uint8_t restorePreview);
 static void UI_MenuHandleEncoderStep(int8_t direction);
 static void UI_MenuHandleEnter(void);
 static void UI_MenuHandleReturn(void);
+static uint8_t UI_MenuGetRowCount(void);
+static uint8_t UI_MenuItemIsManualNode(void);
+static void UI_DeleteSelectedManualNode(void);
 
 /*
 * Horizontal viewport.
@@ -694,11 +701,21 @@ typedef enum
 
 } UI_MenuControlMode;
 
+typedef enum
+{
+    UI_MENU_PAGE_ROOT = 0,
+    UI_MENU_PAGE_DELETE_CONFIRM
+
+} UI_MenuPage;
+
 static UI_Mode uiMode =
     UI_MODE_STATE_VIEW;
 
 static UI_MenuControlMode uiMenuControlMode =
     UI_MENU_CONTROL_NAVIGATION;
+
+static UI_MenuPage uiMenuPage =
+    UI_MENU_PAGE_ROOT;
 
 static int16_t uiMenuSelectedRow =
     UI_MENU_ITEM_ROW;
@@ -4133,31 +4150,137 @@ static void UI_DrawMenuRow(
     );
 
     /*
-     * Der Item-Auswahlmodus wird durch Pfeile links
-     * und rechts vom Itemnamen gekennzeichnet.
+     * Aktiver Item-Auswahlmodus: zusätzlicher
+     * magentafarbener Innenrahmen. Damit werden keine
+     * nicht unterstützten Schriftzeichen benötigt.
      */
     if (row == UI_MENU_ITEM_ROW &&
         uiMenuControlMode ==
             UI_MENU_CONTROL_ITEM_SELECTION)
     {
-        Font5x7_DrawString(
+        ST7735_DrawLine(
             rowX + 1U,
-            rowY + UI_MENU_TEXT_Y_OFFSET,
-            "<",
-            UI_COLOR_TEXT_LIGHT,
-            background,
-            1U
+            rowY + 1U,
+            rowX + rowWidth - 2U,
+            rowY + 1U,
+            UI_COLOR_BORDER_GRABBED
         );
 
-        Font5x7_DrawString(
-            rowX + rowWidth - 7U,
-            rowY + UI_MENU_TEXT_Y_OFFSET,
-            ">",
-            UI_COLOR_TEXT_LIGHT,
-            background,
-            1U
+        ST7735_DrawLine(
+            rowX + 1U,
+            rowY + UI_MENU_ROW_HEIGHT - 2U,
+            rowX + rowWidth - 2U,
+            rowY + UI_MENU_ROW_HEIGHT - 2U,
+            UI_COLOR_BORDER_GRABBED
+        );
+
+        ST7735_DrawLine(
+            rowX + 1U,
+            rowY + 1U,
+            rowX + 1U,
+            rowY + UI_MENU_ROW_HEIGHT - 2U,
+            UI_COLOR_BORDER_GRABBED
+        );
+
+        ST7735_DrawLine(
+            rowX + rowWidth - 2U,
+            rowY + 1U,
+            rowX + rowWidth - 2U,
+            rowY + UI_MENU_ROW_HEIGHT - 2U,
+            UI_COLOR_BORDER_GRABBED
         );
     }
+}
+
+
+static uint8_t UI_MenuItemIsManualNode(void)
+{
+    return
+        (uiMenuItemIndex >= 0 &&
+         uiMenuItemIndex < (int16_t)UI_ITEM_COUNT &&
+         uiItems[uiMenuItemIndex].order >= 0 &&
+         uiItems[uiMenuItemIndex].type ==
+             UI_ITEM_MANUAL_NODE) ?
+        1U :
+        0U;
+}
+
+
+static uint8_t UI_MenuGetRowCount(void)
+{
+    if (uiMenuPage ==
+        UI_MENU_PAGE_DELETE_CONFIRM)
+    {
+        return 3U;
+    }
+
+    return UI_MenuItemIsManualNode() ?
+        3U :
+        2U;
+}
+
+
+static void UI_DeleteSelectedManualNode(void)
+{
+    if (!UI_MenuItemIsManualNode())
+    {
+        return;
+    }
+
+    int16_t deletedIndex =
+        uiMenuItemIndex;
+
+    int16_t replacementIndex =
+        UI_FindPreviousSelectableIndex(
+            deletedIndex
+        );
+
+    if (replacementIndex < 0)
+    {
+        replacementIndex =
+            UI_FindNextSelectableIndex(
+                deletedIndex
+            );
+    }
+
+    uiItems[deletedIndex].order =
+        UI_INACTIVE_ORDER;
+    uiItems[deletedIndex].lane = 0;
+    uiItems[deletedIndex].focus =
+        UI_FOCUS_NONE;
+    uiItems[deletedIndex].loopStatus =
+        UI_LOOP_STATUS_OFF;
+
+    UI_RemoveAllAutoNodes();
+    UI_NormalizeOrders();
+    UI_EnsureEdgeColumns();
+
+    if (!UI_RebuildCalculatedConnections())
+    {
+        UI_ClearConnections();
+    }
+
+    if (replacementIndex < 0 ||
+        !UI_IsSelectable(
+            &uiItems[replacementIndex]))
+    {
+        replacementIndex =
+            UI_FindFirstSelectableIndex();
+    }
+
+    if (replacementIndex >= 0)
+    {
+        UI_MenuSetConfirmedItem(
+            replacementIndex
+        );
+    }
+
+    uiMenuPage = UI_MENU_PAGE_ROOT;
+    uiMenuControlMode =
+        UI_MENU_CONTROL_NAVIGATION;
+    uiMode = UI_MODE_STATE_VIEW;
+
+    UI_Draw();
 }
 
 
@@ -4203,6 +4326,27 @@ static void UI_DrawMenu(void)
         UI_COLOR_BORDER_NORMAL
     );
 
+    if (uiMenuPage ==
+        UI_MENU_PAGE_DELETE_CONFIRM)
+    {
+        UI_DrawMenuRow(
+            UI_MENU_CONFIRM_TITLE_ROW,
+            "Delete Node?"
+        );
+
+        UI_DrawMenuRow(
+            UI_MENU_CONFIRM_CANCEL_ROW,
+            "Cancel"
+        );
+
+        UI_DrawMenuRow(
+            UI_MENU_CONFIRM_DELETE_ROW,
+            "Delete"
+        );
+
+        return;
+    }
+
     UI_DrawMenuRow(
         UI_MENU_GENERAL_ROW,
         "General Menu"
@@ -4212,6 +4356,14 @@ static void UI_DrawMenu(void)
         UI_MENU_ITEM_ROW,
         UI_MenuGetItemName()
     );
+
+    if (UI_MenuItemIsManualNode())
+    {
+        UI_DrawMenuRow(
+            UI_MENU_DELETE_NODE_ROW,
+            "Delete Node"
+        );
+    }
 }
 
 
@@ -4235,6 +4387,7 @@ static void UI_OpenMenu(void)
         UI_FOCUS_SELECTED;
 
     uiMode = UI_MODE_MENU;
+    uiMenuPage = UI_MENU_PAGE_ROOT;
     uiMenuControlMode =
         UI_MENU_CONTROL_NAVIGATION;
 
@@ -4268,6 +4421,7 @@ static void UI_CloseMenu(
 
     uiMenuControlMode =
         UI_MENU_CONTROL_NAVIGATION;
+    uiMenuPage = UI_MENU_PAGE_ROOT;
 
     uiMode = UI_MODE_STATE_VIEW;
 
@@ -4309,7 +4463,7 @@ static void UI_MenuHandleEncoderStep(
     if (direction > 0)
     {
         if (uiMenuSelectedRow <
-            (int16_t)(UI_MENU_ROOT_ROW_COUNT - 1U))
+            (int16_t)(UI_MenuGetRowCount() - 1U))
         {
             uiMenuSelectedRow++;
             UI_DrawMenu();
@@ -4328,6 +4482,24 @@ static void UI_MenuHandleEncoderStep(
 
 static void UI_MenuHandleEnter(void)
 {
+    if (uiMenuPage ==
+        UI_MENU_PAGE_DELETE_CONFIRM)
+    {
+        if (uiMenuSelectedRow ==
+            UI_MENU_CONFIRM_DELETE_ROW)
+        {
+            UI_DeleteSelectedManualNode();
+            return;
+        }
+
+        /* Cancel or title: return to root menu. */
+        uiMenuPage = UI_MENU_PAGE_ROOT;
+        uiMenuSelectedRow =
+            UI_MENU_DELETE_NODE_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
     if (uiMenuControlMode ==
         UI_MENU_CONTROL_ITEM_SELECTION)
     {
@@ -4364,6 +4536,18 @@ static void UI_MenuHandleEnter(void)
         return;
     }
 
+    if (uiMenuSelectedRow ==
+            UI_MENU_DELETE_NODE_ROW &&
+        UI_MenuItemIsManualNode())
+    {
+        uiMenuPage =
+            UI_MENU_PAGE_DELETE_CONFIRM;
+        uiMenuSelectedRow =
+            UI_MENU_CONFIRM_CANCEL_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
     /*
      * General Menu wird im folgenden Schritt mit
      * einer eigenen Unterseite belegt.
@@ -4373,6 +4557,16 @@ static void UI_MenuHandleEnter(void)
 
 static void UI_MenuHandleReturn(void)
 {
+    if (uiMenuPage ==
+        UI_MENU_PAGE_DELETE_CONFIRM)
+    {
+        uiMenuPage = UI_MENU_PAGE_ROOT;
+        uiMenuSelectedRow =
+            UI_MENU_DELETE_NODE_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
     if (uiMenuControlMode ==
         UI_MENU_CONTROL_ITEM_SELECTION)
     {
@@ -6656,6 +6850,7 @@ void UI_Init(void)
 {
     grabStartStateValid = 0U;
     uiMode = UI_MODE_STATE_VIEW;
+    uiMenuPage = UI_MENU_PAGE_ROOT;
     uiMenuControlMode =
         UI_MENU_CONTROL_NAVIGATION;
     uiMenuSelectedRow =
