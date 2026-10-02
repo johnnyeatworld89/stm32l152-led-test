@@ -284,8 +284,8 @@ void UI_HandleEncoderButton(
 void UI_HandleReturnButton(void);
 
 /*
- * In Schritt 1 wird die Menu-Taste bereits sauber
- * eingelesen. Die Menüanzeige folgt in Schritt 2.
+ * Öffnet oder schließt das Menü-Overlay. Ist das
+ * Menü geöffnet, wird es aus jeder Ebene geschlossen.
  */
 void UI_HandleMenuButton(void);
 
