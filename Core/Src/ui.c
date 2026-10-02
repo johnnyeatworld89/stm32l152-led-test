@@ -62,6 +62,21 @@
      ((UI_FOOTER_HEIGHT -              \
        UI_SHIFT_INDICATOR_HEIGHT) / 2U))
 
+/* -------------------------------------------------------------------------- */
+/* Menu overlay                                                               */
+/* -------------------------------------------------------------------------- */
+
+#define UI_MENU_X                    8U
+#define UI_MENU_Y                    8U
+#define UI_MENU_WIDTH              144U
+#define UI_MENU_HEIGHT              72U
+#define UI_MENU_ROW_HEIGHT          24U
+#define UI_MENU_TEXT_X_OFFSET        8U
+#define UI_MENU_TEXT_Y_OFFSET        8U
+#define UI_MENU_ROOT_ROW_COUNT       2U
+#define UI_MENU_GENERAL_ROW          0U
+#define UI_MENU_ITEM_ROW             1U
+
 static UI_Item uiItems[] =
 {
     {
@@ -542,6 +557,11 @@ static void UI_DrawItem(
 
 
 static void UI_DrawFooter(void);
+static void UI_DrawMenu(void);
+static void UI_CloseMenu(uint8_t restorePreview);
+static void UI_MenuHandleEncoderStep(int8_t direction);
+static void UI_MenuHandleEnter(void);
+static void UI_MenuHandleReturn(void);
 
 /*
 * Horizontal viewport.
@@ -659,6 +679,33 @@ static UI_ItemPositionState grabStartState[
 static int16_t grabStartFirstVisibleOrder = 0;
 static int16_t grabStartHighestVisibleLane = 1;
 static uint8_t grabStartStateValid = 0U;
+
+typedef enum
+{
+    UI_MODE_STATE_VIEW = 0,
+    UI_MODE_MENU
+
+} UI_Mode;
+
+typedef enum
+{
+    UI_MENU_CONTROL_NAVIGATION = 0,
+    UI_MENU_CONTROL_ITEM_SELECTION
+
+} UI_MenuControlMode;
+
+static UI_Mode uiMode =
+    UI_MODE_STATE_VIEW;
+
+static UI_MenuControlMode uiMenuControlMode =
+    UI_MENU_CONTROL_NAVIGATION;
+
+static int16_t uiMenuSelectedRow =
+    UI_MENU_ITEM_ROW;
+
+static int16_t uiMenuItemIndex = -1;
+static int16_t uiMenuPreviewItemIndex = -1;
+static int16_t uiMenuItemSelectionStartIndex = -1;
 
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
@@ -3994,19 +4041,384 @@ static uint8_t UI_RestoreGrabStartState(void)
 }
 
 
+static void UI_MenuSetConfirmedItem(
+    int16_t itemIndex)
+{
+    if (itemIndex < 0 ||
+        itemIndex >= (int16_t)UI_ITEM_COUNT ||
+        !UI_IsSelectable(&uiItems[itemIndex]))
+    {
+        return;
+    }
+
+    for (uint16_t i = 0;
+         i < UI_ITEM_COUNT;
+         i++)
+    {
+        uiItems[i].focus =
+            UI_FOCUS_NONE;
+    }
+
+    uiItems[itemIndex].focus =
+        UI_FOCUS_SELECTED;
+
+    uiMenuItemIndex = itemIndex;
+
+    /*
+     * Der Statusbildschirm wird erst beim Schließen
+     * des Menüs gezeichnet. Die Viewports werden aber
+     * bereits auf das bestätigte Item vorbereitet.
+     */
+    (void)UI_EnsureItemVisible(itemIndex);
+    (void)UI_EnsureItemVerticallyVisible(itemIndex);
+}
+
+
+static const char *UI_MenuGetItemName(void)
+{
+    int16_t itemIndex =
+        (uiMenuControlMode ==
+         UI_MENU_CONTROL_ITEM_SELECTION) ?
+        uiMenuPreviewItemIndex :
+        uiMenuItemIndex;
+
+    if (itemIndex < 0 ||
+        itemIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return "No item";
+    }
+
+    if (uiItems[itemIndex].longName[0] != '\0')
+    {
+        return uiItems[itemIndex].longName;
+    }
+
+    return uiItems[itemIndex].shortName;
+}
+
+
+static void UI_DrawMenuRow(
+    uint8_t row,
+    const char *text)
+{
+    uint16_t rowX = UI_MENU_X + 2U;
+    uint16_t rowY =
+        UI_MENU_Y + 2U +
+        ((uint16_t)row * UI_MENU_ROW_HEIGHT);
+
+    uint16_t rowWidth =
+        UI_MENU_WIDTH - 4U;
+
+    uint16_t background =
+        ((int16_t)row ==
+         uiMenuSelectedRow) ?
+        UI_COLOR_BORDER_SELECTED :
+        UI_COLOR_BACKGROUND;
+
+    ST7735_FillRect(
+        rowX,
+        rowY,
+        rowWidth,
+        UI_MENU_ROW_HEIGHT,
+        background
+    );
+
+    Font5x7_DrawString(
+        rowX + UI_MENU_TEXT_X_OFFSET,
+        rowY + UI_MENU_TEXT_Y_OFFSET,
+        text,
+        UI_COLOR_TEXT_LIGHT,
+        background,
+        1U
+    );
+
+    /*
+     * Der Item-Auswahlmodus wird durch Pfeile links
+     * und rechts vom Itemnamen gekennzeichnet.
+     */
+    if (row == UI_MENU_ITEM_ROW &&
+        uiMenuControlMode ==
+            UI_MENU_CONTROL_ITEM_SELECTION)
+    {
+        Font5x7_DrawString(
+            rowX + 1U,
+            rowY + UI_MENU_TEXT_Y_OFFSET,
+            "<",
+            UI_COLOR_TEXT_LIGHT,
+            background,
+            1U
+        );
+
+        Font5x7_DrawString(
+            rowX + rowWidth - 7U,
+            rowY + UI_MENU_TEXT_Y_OFFSET,
+            ">",
+            UI_COLOR_TEXT_LIGHT,
+            background,
+            1U
+        );
+    }
+}
+
+
+static void UI_DrawMenu(void)
+{
+    ST7735_FillRect(
+        UI_MENU_X,
+        UI_MENU_Y,
+        UI_MENU_WIDTH,
+        UI_MENU_HEIGHT,
+        UI_COLOR_BACKGROUND
+    );
+
+    ST7735_DrawLine(
+        UI_MENU_X,
+        UI_MENU_Y,
+        UI_MENU_X + UI_MENU_WIDTH - 1U,
+        UI_MENU_Y,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    ST7735_DrawLine(
+        UI_MENU_X,
+        UI_MENU_Y + UI_MENU_HEIGHT - 1U,
+        UI_MENU_X + UI_MENU_WIDTH - 1U,
+        UI_MENU_Y + UI_MENU_HEIGHT - 1U,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    ST7735_DrawLine(
+        UI_MENU_X,
+        UI_MENU_Y,
+        UI_MENU_X,
+        UI_MENU_Y + UI_MENU_HEIGHT - 1U,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    ST7735_DrawLine(
+        UI_MENU_X + UI_MENU_WIDTH - 1U,
+        UI_MENU_Y,
+        UI_MENU_X + UI_MENU_WIDTH - 1U,
+        UI_MENU_Y + UI_MENU_HEIGHT - 1U,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    UI_DrawMenuRow(
+        UI_MENU_GENERAL_ROW,
+        "General Menu"
+    );
+
+    UI_DrawMenuRow(
+        UI_MENU_ITEM_ROW,
+        UI_MenuGetItemName()
+    );
+}
+
+
+static void UI_OpenMenu(void)
+{
+    int16_t focusedIndex =
+        UI_GetFocusedIndex();
+
+    if (focusedIndex < 0 ||
+        !UI_IsSelectable(&uiItems[focusedIndex]))
+    {
+        return;
+    }
+
+    /*
+     * Ein eventuell gegriffenes Item bleibt an seiner
+     * aktuellen Position, wird aber für die Menünutzung
+     * wieder in den ausgewählten Zustand versetzt.
+     */
+    uiItems[focusedIndex].focus =
+        UI_FOCUS_SELECTED;
+
+    uiMode = UI_MODE_MENU;
+    uiMenuControlMode =
+        UI_MENU_CONTROL_NAVIGATION;
+
+    uiMenuSelectedRow =
+        UI_MENU_ITEM_ROW;
+
+    uiMenuItemIndex = focusedIndex;
+    uiMenuPreviewItemIndex = focusedIndex;
+    uiMenuItemSelectionStartIndex = focusedIndex;
+
+    UI_DrawMenu();
+}
+
+
+static void UI_CloseMenu(
+    uint8_t restorePreview)
+{
+    if (uiMode != UI_MODE_MENU)
+    {
+        return;
+    }
+
+    if (restorePreview &&
+        uiMenuControlMode ==
+            UI_MENU_CONTROL_ITEM_SELECTION)
+    {
+        UI_MenuSetConfirmedItem(
+            uiMenuItemSelectionStartIndex
+        );
+    }
+
+    uiMenuControlMode =
+        UI_MENU_CONTROL_NAVIGATION;
+
+    uiMode = UI_MODE_STATE_VIEW;
+
+    UI_Draw();
+}
+
+
+static void UI_MenuHandleEncoderStep(
+    int8_t direction)
+{
+    if (direction == 0)
+    {
+        return;
+    }
+
+    if (uiMenuControlMode ==
+        UI_MENU_CONTROL_ITEM_SELECTION)
+    {
+        int16_t candidateIndex =
+            (direction > 0) ?
+            UI_FindNextSelectableIndex(
+                uiMenuPreviewItemIndex
+            ) :
+            UI_FindPreviousSelectableIndex(
+                uiMenuPreviewItemIndex
+            );
+
+        if (candidateIndex >= 0)
+        {
+            uiMenuPreviewItemIndex =
+                candidateIndex;
+
+            UI_DrawMenu();
+        }
+
+        return;
+    }
+
+    if (direction > 0)
+    {
+        if (uiMenuSelectedRow <
+            (int16_t)(UI_MENU_ROOT_ROW_COUNT - 1U))
+        {
+            uiMenuSelectedRow++;
+            UI_DrawMenu();
+        }
+    }
+    else
+    {
+        if (uiMenuSelectedRow > 0)
+        {
+            uiMenuSelectedRow--;
+            UI_DrawMenu();
+        }
+    }
+}
+
+
+static void UI_MenuHandleEnter(void)
+{
+    if (uiMenuControlMode ==
+        UI_MENU_CONTROL_ITEM_SELECTION)
+    {
+        UI_MenuSetConfirmedItem(
+            uiMenuPreviewItemIndex
+        );
+
+        uiMenuItemSelectionStartIndex =
+            uiMenuItemIndex;
+
+        uiMenuControlMode =
+            UI_MENU_CONTROL_NAVIGATION;
+
+        uiMenuSelectedRow =
+            UI_MENU_ITEM_ROW;
+
+        UI_DrawMenu();
+        return;
+    }
+
+    if (uiMenuSelectedRow ==
+        UI_MENU_ITEM_ROW)
+    {
+        uiMenuItemSelectionStartIndex =
+            uiMenuItemIndex;
+
+        uiMenuPreviewItemIndex =
+            uiMenuItemIndex;
+
+        uiMenuControlMode =
+            UI_MENU_CONTROL_ITEM_SELECTION;
+
+        UI_DrawMenu();
+        return;
+    }
+
+    /*
+     * General Menu wird im folgenden Schritt mit
+     * einer eigenen Unterseite belegt.
+     */
+}
+
+
+static void UI_MenuHandleReturn(void)
+{
+    if (uiMenuControlMode ==
+        UI_MENU_CONTROL_ITEM_SELECTION)
+    {
+        uiMenuPreviewItemIndex =
+            uiMenuItemSelectionStartIndex;
+
+        uiMenuItemIndex =
+            uiMenuItemSelectionStartIndex;
+
+        uiMenuControlMode =
+            UI_MENU_CONTROL_NAVIGATION;
+
+        uiMenuSelectedRow =
+            UI_MENU_ITEM_ROW;
+
+        UI_DrawMenu();
+        return;
+    }
+
+    /* Root-Ebene: Return schließt das Menü. */
+    UI_CloseMenu(0U);
+}
+
+
 void UI_HandleReturnButton(void)
 {
+    if (uiMode == UI_MODE_MENU)
+    {
+        UI_MenuHandleReturn();
+        return;
+    }
+
     (void)UI_RestoreGrabStartState();
 }
 
 
 void UI_HandleMenuButton(void)
 {
-    /*
-     * Hardware und Druckflankenerkennung sind in
-     * Schritt 1 aktiv. Das Menü wird in Schritt 2
-     * geöffnet und gezeichnet.
-     */
+    if (uiMode == UI_MODE_MENU)
+    {
+        /* Unbestätigte Item-Vorschau verwerfen. */
+        UI_CloseMenu(1U);
+        return;
+    }
+
+    UI_OpenMenu();
 }
 
 
@@ -4084,6 +4496,12 @@ void UI_ToggleGrab(void)
 void UI_HandleEncoderButton(
     uint8_t shiftPressed)
 {
+    if (uiMode == UI_MODE_MENU)
+    {
+        UI_MenuHandleEnter();
+        return;
+    }
+
     /*
      * Shift + Klick funktioniert nur bei einem
      * lediglich ausgewählten, nicht gegriffenen
@@ -5205,6 +5623,15 @@ void UI_HandleEncoderStep(
     int8_t direction,
     uint8_t shiftPressed)
 {
+    if (uiMode == UI_MODE_MENU)
+    {
+        UI_MenuHandleEncoderStep(
+            direction
+        );
+
+        return;
+    }
+
     if (direction == 0)
     {
         return;
@@ -6228,6 +6655,14 @@ UI_DrawShiftDebugIndicator();
 void UI_Init(void)
 {
     grabStartStateValid = 0U;
+    uiMode = UI_MODE_STATE_VIEW;
+    uiMenuControlMode =
+        UI_MENU_CONTROL_NAVIGATION;
+    uiMenuSelectedRow =
+        UI_MENU_ITEM_ROW;
+    uiMenuItemIndex = -1;
+    uiMenuPreviewItemIndex = -1;
+    uiMenuItemSelectionStartIndex = -1;
 
     int16_t firstFocusedIndex = -1;
 
