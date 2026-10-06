@@ -45,6 +45,29 @@
 #define RETURN_DEBOUNCE_MS             30U
 #define MENU_DEBOUNCE_MS               30U
 
+/*
+ * Input sampling (rotary encoder and encoder button).
+ *
+ * TIM6 raises an interrupt at INPUT_SAMPLE_RATE_HZ. The interrupt
+ * decodes the encoder and debounces the encoder button, and pushes
+ * events into a ring buffer. The main loop consumes the events.
+ *
+ * TIM6 is a basic timer on APB1. SystemClock_Config() runs APB1 with
+ * divider 1, so the timer clock equals PCLK1 = 32 MHz. If the APB1
+ * divider is ever changed, TIM6_CLOCK_HZ must be adjusted.
+ */
+#define INPUT_SAMPLE_RATE_HZ           1000UL
+#define TIM6_CLOCK_HZ                  32000000UL
+#define INPUT_TIMER_IRQ_PRIORITY       1U
+
+/*
+ * Ring buffer size. Must be a power of two and at most 128,
+ * because the indices are uint8_t.
+ */
+#define INPUT_QUEUE_SIZE               32U
+#define INPUT_QUEUE_MASK               (INPUT_QUEUE_SIZE - 1U)
+
+
 
 /*
  * MCP23S17 registers used for diagnostics.
@@ -71,7 +94,7 @@ static MCP23S17_HandleTypeDef mcp23s17_1;
 
 
 /* -------------------------------------------------------------------------- */
-/* Rotary encoder state                                                       */
+/* Rotary encoder state (used only inside the TIM6 interrupt)                 */
 /* -------------------------------------------------------------------------- */
 
 static uint8_t encoderState = 0U;
@@ -79,7 +102,7 @@ static int8_t encoderAccumulator = 0;
 
 
 /* -------------------------------------------------------------------------- */
-/* Encoder button state                                                       */
+/* Encoder button state (used only inside the TIM6 interrupt)                 */
 /* -------------------------------------------------------------------------- */
 
 static GPIO_PinState buttonRawState =
@@ -89,6 +112,9 @@ static GPIO_PinState buttonStableState =
     GPIO_PIN_SET;
 
 static uint32_t buttonLastChangeTick = 0U;
+
+/* Millisecond counter, incremented by the TIM6 interrupt. */
+static uint32_t inputTickMs = 0U;
 
 
 /* -------------------------------------------------------------------------- */
@@ -121,6 +147,29 @@ static uint8_t controlButtonsInitialized = 0U;
 
 
 /* -------------------------------------------------------------------------- */
+/* Input event queue                                                          */
+/* -------------------------------------------------------------------------- */
+
+typedef enum
+{
+    INPUT_EVENT_ENCODER_CW = 1U,
+    INPUT_EVENT_ENCODER_CCW,
+    INPUT_EVENT_ENCODER_BUTTON_PRESS
+
+} InputEvent;
+
+/*
+ * Single producer (TIM6 interrupt), single consumer (main loop).
+ *
+ * head is written only by the interrupt, tail only by the main loop.
+ * Both are single-byte accesses, which are atomic on the Cortex-M3.
+ * One slot stays unused to tell "full" from "empty".
+ */
+static volatile uint8_t inputQueue[INPUT_QUEUE_SIZE];
+static volatile uint8_t inputQueueHead = 0U;
+static volatile uint8_t inputQueueTail = 0U;
+
+/* -------------------------------------------------------------------------- */
 /* Diagnostic variables                                                       */
 /* -------------------------------------------------------------------------- */
 
@@ -137,6 +186,12 @@ volatile uint8_t debugMcpGPIOB = 0U;
 volatile uint8_t debugMcpInitOk = 0U;
 volatile uint8_t debugMcpReadOk = 0U;
 
+/* Events dropped because the queue was full. */
+volatile uint8_t debugInputQueueOverflows = 0U;
+
+/* Highest number of queued events seen so far. */
+volatile uint8_t debugInputQueueMaxFill = 0U;
+
 
 /* -------------------------------------------------------------------------- */
 /* Private function prototypes                                                */
@@ -147,11 +202,12 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 
-static void Encoder_Init(void);
-static void Encoder_Update(void);
+static void Input_Init(void);
+static void Input_Sample(void);
+static void Input_ProcessEvents(void);
 
-static void Button_Init(void);
-static void Button_Update(void);
+static void InputQueue_Push(uint8_t event);
+static uint8_t InputQueue_Pop(uint8_t *event);
 
 static HAL_StatusTypeDef MCP23S17_ApplicationInit(void);
 
@@ -163,83 +219,152 @@ static void Error_Handler(void);
 
 
 /* -------------------------------------------------------------------------- */
-/* Rotary encoder initialization                                              */
+/* Input event queue                                                          */
 /* -------------------------------------------------------------------------- */
 
-static void Encoder_Init(void)
+/*
+ * Called from the TIM6 interrupt only.
+ */
+static void InputQueue_Push(uint8_t event)
 {
-    uint8_t encoderA =
-        (HAL_GPIO_ReadPin(
-            GPIOC,
-            GPIO_PIN_1
-        ) == GPIO_PIN_SET) ?
-        1U :
-        0U;
+    uint8_t head = inputQueueHead;
+    uint8_t next = (uint8_t)((head + 1U) & INPUT_QUEUE_MASK);
+
+    if (next == inputQueueTail)
+    {
+        /*
+         * Queue full: drop the new event.
+         */
+        if (debugInputQueueOverflows < 0xFFU)
+        {
+            debugInputQueueOverflows++;
+        }
+
+        return;
+    }
+
+    inputQueue[head] = event;
+    inputQueueHead = next;
+
+    uint8_t fill =
+        (uint8_t)((next - inputQueueTail) & INPUT_QUEUE_MASK);
+
+    if (fill > debugInputQueueMaxFill)
+    {
+        debugInputQueueMaxFill = fill;
+    }
+}
 
 
-    uint8_t encoderB =
-        (HAL_GPIO_ReadPin(
-            GPIOA,
-            GPIO_PIN_1
-        ) == GPIO_PIN_SET) ?
-        1U :
-        0U;
+/*
+ * Called from the main loop only.
+ * Returns 1 and the oldest event, or 0 if the queue is empty.
+ */
+static uint8_t InputQueue_Pop(uint8_t *event)
+{
+    uint8_t tail = inputQueueTail;
 
+    if (tail == inputQueueHead)
+    {
+        return 0U;
+    }
 
-    encoderState =
-        (uint8_t)(
-            (encoderA << 1) |
-            encoderB
-        );
+    *event = inputQueue[tail];
+    inputQueueTail = (uint8_t)((tail + 1U) & INPUT_QUEUE_MASK);
 
-
-    encoderAccumulator = 0;
+    return 1U;
 }
 
 
 /* -------------------------------------------------------------------------- */
-/* Rotary encoder polling                                                     */
+/* Input sampling initialization                                              */
 /* -------------------------------------------------------------------------- */
 
-static void Encoder_Update(void)
+/*
+ * Reads the initial encoder and button state and starts the TIM6
+ * sampling interrupt. Call after MX_GPIO_Init() and, preferably,
+ * after the display and MCP23S17 initialization, so that no input
+ * is lost to initialization time.
+ */
+static void Input_Init(void)
 {
     uint8_t encoderA =
-        (HAL_GPIO_ReadPin(
-            GPIOC,
-            GPIO_PIN_1
-        ) == GPIO_PIN_SET) ?
-        1U :
-        0U;
-
+        (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET) ?
+        1U : 0U;
 
     uint8_t encoderB =
-        (HAL_GPIO_ReadPin(
-            GPIOA,
-            GPIO_PIN_1
-        ) == GPIO_PIN_SET) ?
-        1U :
-        0U;
+        (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET) ?
+        1U : 0U;
 
+    encoderState = (uint8_t)((encoderA << 1) | encoderB);
+    encoderAccumulator = 0;
+
+    buttonRawState = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
+    buttonStableState = buttonRawState;
+    buttonLastChangeTick = 0U;
+    inputTickMs = 0U;
+
+    inputQueueHead = 0U;
+    inputQueueTail = 0U;
+
+    /*
+     * TIM6: prescaler to 1 MHz, auto-reload to the sample rate.
+     * Registers are used directly so that the HAL TIM module does
+     * not have to be enabled in stm32l1xx_hal_conf.h.
+     */
+    __HAL_RCC_TIM6_CLK_ENABLE();
+
+    TIM6->CR1 = 0U;
+    TIM6->PSC = (uint16_t)((TIM6_CLOCK_HZ / 1000000UL) - 1UL);
+    TIM6->ARR = (uint16_t)((1000000UL / INPUT_SAMPLE_RATE_HZ) - 1UL);
+
+    /* Update event loads the prescaler; clear its pending flag. */
+    TIM6->EGR = TIM_EGR_UG;
+    TIM6->SR = 0U;
+
+    TIM6->DIER = TIM_DIER_UIE;
+
+    NVIC_SetPriority(TIM6_IRQn, INPUT_TIMER_IRQ_PRIORITY);
+    NVIC_EnableIRQ(TIM6_IRQn);
+
+    TIM6->CR1 = TIM_CR1_CEN;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Input sampling (runs in the TIM6 interrupt)                                */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Must stay short and must not use SPI: the display and the
+ * MCP23S17 share SPI1 and are accessed from the main loop.
+ */
+static void Input_Sample(void)
+{
+    inputTickMs++;
+
+
+    /* ---------------------------------------------------------------------- */
+    /* Rotary encoder                                                         */
+    /* ---------------------------------------------------------------------- */
+
+    uint8_t encoderA =
+        (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_SET) ?
+        1U : 0U;
+
+    uint8_t encoderB =
+        (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_SET) ?
+        1U : 0U;
 
     uint8_t currentState =
-        (uint8_t)(
-            (encoderA << 1) |
-            encoderB
-        );
-
+        (uint8_t)((encoderA << 1) | encoderB);
 
     uint8_t transition =
-        (uint8_t)(
-            (encoderState << 2) |
-            currentState
-        );
-
+        (uint8_t)((encoderState << 2) | currentState);
 
     switch (transition)
     {
-        /*
-         * Clockwise transitions.
-         */
+        /* Clockwise transitions. */
         case 0x01U:
         case 0x07U:
         case 0x0EU:
@@ -247,10 +372,7 @@ static void Encoder_Update(void)
             encoderAccumulator++;
             break;
 
-
-        /*
-         * Counter-clockwise transitions.
-         */
+        /* Counter-clockwise transitions. */
         case 0x02U:
         case 0x0BU:
         case 0x0DU:
@@ -258,130 +380,108 @@ static void Encoder_Update(void)
             encoderAccumulator--;
             break;
 
-
         default:
             break;
     }
 
-
-    encoderState =
-        currentState;
-
+    encoderState = currentState;
 
     /*
-     * One encoder detent corresponds to four
-     * valid quadrature transitions.
+     * One encoder detent corresponds to four valid quadrature
+     * transitions.
      */
     while (encoderAccumulator >= 4)
     {
         encoderAccumulator -= 4;
-
-        /*
-         * Shift is not yet used for vertical
-         * movement. Existing horizontal behavior
-         * remains active during this hardware test.
-         */
-        UI_HandleEncoderStep(
-    1,
-    Shift_IsPressed()
-);
+        InputQueue_Push((uint8_t)INPUT_EVENT_ENCODER_CW);
     }
-
 
     while (encoderAccumulator <= -4)
     {
         encoderAccumulator += 4;
-
-        UI_HandleEncoderStep(
-    -1,
-    Shift_IsPressed()
-);
+        InputQueue_Push((uint8_t)INPUT_EVENT_ENCODER_CCW);
     }
-}
 
 
-/* -------------------------------------------------------------------------- */
-/* Encoder button initialization                                              */
-/* -------------------------------------------------------------------------- */
+    /* ---------------------------------------------------------------------- */
+    /* Encoder button (PA0, active-low)                                       */
+    /* ---------------------------------------------------------------------- */
 
-static void Button_Init(void)
-{
-    buttonRawState =
-        HAL_GPIO_ReadPin(
-            GPIOA,
-            GPIO_PIN_0
-        );
-
-
-    buttonStableState =
-        buttonRawState;
-
-
-    buttonLastChangeTick =
-        HAL_GetTick();
-}
-
-
-/* -------------------------------------------------------------------------- */
-/* Encoder button polling                                                     */
-/* -------------------------------------------------------------------------- */
-
-static void Button_Update(void)
-{
     GPIO_PinState currentRawState =
-        HAL_GPIO_ReadPin(
-            GPIOA,
-            GPIO_PIN_0
-        );
+        HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
 
-
-    uint32_t currentTick =
-        HAL_GetTick();
-
-
-    /*
-     * Raw state changed:
-     * restart debounce timer.
-     */
-    if (currentRawState !=
-        buttonRawState)
+    if (currentRawState != buttonRawState)
     {
-        buttonRawState =
-            currentRawState;
-
-        buttonLastChangeTick =
-            currentTick;
+        buttonRawState = currentRawState;
+        buttonLastChangeTick = inputTickMs;
     }
 
-
-    /*
-     * Accept the new state after it has remained
-     * stable for the debounce period.
-     */
-    if ((currentTick -
-         buttonLastChangeTick) >=
+    if ((inputTickMs - buttonLastChangeTick) >=
         ENCODER_BUTTON_DEBOUNCE_MS)
     {
-        if (buttonStableState !=
-            buttonRawState)
+        if (buttonStableState != buttonRawState)
         {
-            buttonStableState =
-                buttonRawState;
-
+            buttonStableState = buttonRawState;
 
             /*
-             * Encoder button is active-low.
-             *
-             * Only a confirmed press toggles
-             * the grab state.
+             * Only a confirmed press generates an event.
              */
-            if (buttonStableState ==
-    GPIO_PIN_RESET)
-{
-    UI_HandleEncoderButton(
-        Shift_IsPressed()
-    );
+            if (buttonStableState == GPIO_PIN_RESET)
+            {
+                InputQueue_Push(
+                    (uint8_t)INPUT_EVENT_ENCODER_BUTTON_PRESS);
+            }
+        }
+    }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* TIM6 interrupt handler                                                     */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * The name must match the vector table in the startup file.
+ * It must not also be defined in stm32l1xx_it.c.
+ */
+void TIM6_IRQHandler(void)
+{
+    if ((TIM6->SR & TIM_SR_UIF) != 0U)
+    {
+        /* SR flags are rc_w0: writing 0 clears only UIF. */
+        TIM6->SR = (uint16_t)~TIM_SR_UIF;
+
+        Input_Sample();
+    }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Input event processing (runs in the main loop)                             */
+/* -------------------------------------------------------------------------- */
+
+static void Input_ProcessEvents(void)
+{
+    uint8_t event;
+
+    while (InputQueue_Pop(&event))
+    {
+        switch (event)
+        {
+            case INPUT_EVENT_ENCODER_CW:
+                UI_HandleEncoderStep(1, Shift_IsPressed());
+                break;
+
+            case INPUT_EVENT_ENCODER_CCW:
+                UI_HandleEncoderStep(-1, Shift_IsPressed());
+                break;
+
+            case INPUT_EVENT_ENCODER_BUTTON_PRESS:
+                UI_HandleEncoderButton(Shift_IsPressed());
+                break;
+
+            default:
+                break;
         }
     }
 }
@@ -895,11 +995,6 @@ int main(void)
     MX_SPI1_Init();
 
 
-    Encoder_Init();
-
-    Button_Init();
-
-
     /*
      * Allow the external hardware and reset
      * pull-up to stabilize.
@@ -951,18 +1046,28 @@ int main(void)
     }
 
 
+    /*
+     * Start encoder and button sampling only now, after all
+     * initialization is done. Input from then on is captured by
+     * the TIM6 interrupt even while the display is being redrawn.
+     */
+    Input_Init();
+
     while (1)
     {
         /*
-         * Poll the MCP23S17 before evaluating
-         * the encoder.
+         * Poll the MCP23S17 buttons (Shift, Return, Menu).
+         *
+         * These are on SPI1, which is shared with the display,
+         * so they cannot be read from an interrupt.
          */
         Shift_Update();
         ControlButtons_Update();
 
-        Encoder_Update();
-
-        Button_Update();
+        /*
+         * Process the encoder events queued by the interrupt.
+         */
+        Input_ProcessEvents();
     }
 }
 
