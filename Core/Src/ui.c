@@ -77,6 +77,9 @@
 #define UI_MENU_ITEM_ROW             1U
 #define UI_MENU_DELETE_NODE_ROW      2U
 
+/* Anzahl der Zeilen, die das Menue-Overlay gleichzeitig anzeigen kann. */
+#define UI_MENU_VISIBLE_ROWS         3U
+
 #define UI_MENU_CONFIRM_TITLE_ROW    0U
 #define UI_MENU_CONFIRM_CANCEL_ROW   1U
 #define UI_MENU_CONFIRM_DELETE_ROW   2U
@@ -568,6 +571,8 @@ static void UI_MenuHandleEnter(void);
 static void UI_MenuHandleReturn(void);
 static uint8_t UI_MenuGetRowCount(void);
 static uint8_t UI_MenuItemIsManualNode(void);
+static void UI_MenuSavePreset(void);
+static void UI_MenuManagePresets(void);
 static void UI_DeleteSelectedManualNode(void);
 
 /*
@@ -704,7 +709,8 @@ typedef enum
 typedef enum
 {
     UI_MENU_PAGE_ROOT = 0,
-    UI_MENU_PAGE_DELETE_CONFIRM
+    UI_MENU_PAGE_DELETE_CONFIRM,
+    UI_MENU_PAGE_GENERAL
 
 } UI_MenuPage;
 
@@ -4114,6 +4120,54 @@ static const char *UI_MenuGetItemName(void)
 }
 
 
+/* -------------------------------------------------------------------------- */
+/* General Menu: Eintraege                                                    */
+/* -------------------------------------------------------------------------- */
+
+typedef struct
+{
+    const char *label;
+    void (*action)(void);
+
+} UI_MenuEntry;
+
+static const UI_MenuEntry uiGeneralMenuEntries[] =
+{
+    { "Save Preset",     UI_MenuSavePreset     },
+    { "Manage Presets",  UI_MenuManagePresets  }
+};
+
+#define UI_GENERAL_MENU_ENTRY_COUNT \
+    ((uint8_t)(sizeof(uiGeneralMenuEntries) / \
+               sizeof(uiGeneralMenuEntries[0])))
+
+/*
+ * Das Overlay zeigt aktuell nur UI_MENU_VISIBLE_ROWS Zeilen und
+ * scrollt nicht. Bei mehr Eintraegen muss zuerst ein Scroll-Offset
+ * eingebaut werden.
+ */
+_Static_assert(
+    (sizeof(uiGeneralMenuEntries) /
+     sizeof(uiGeneralMenuEntries[0])) <= UI_MENU_VISIBLE_ROWS,
+    "General Menu hat mehr Eintraege als Zeilen im Overlay");
+
+
+static void UI_MenuSavePreset(void)
+{
+    /*
+     * Platzhalter: wird im naechsten Schritt implementiert.
+     */
+}
+
+
+static void UI_MenuManagePresets(void)
+{
+    /*
+     * Platzhalter: wird im naechsten Schritt implementiert.
+     */
+}
+
+
 static void UI_DrawMenuRow(
     uint8_t row,
     const char *text)
@@ -4212,6 +4266,12 @@ static uint8_t UI_MenuGetRowCount(void)
         UI_MENU_PAGE_DELETE_CONFIRM)
     {
         return 3U;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_GENERAL)
+    {
+        return UI_GENERAL_MENU_ENTRY_COUNT;
     }
 
     return UI_MenuItemIsManualNode() ?
@@ -4343,6 +4403,22 @@ static void UI_DrawMenu(void)
             UI_MENU_CONFIRM_DELETE_ROW,
             "Delete"
         );
+
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_GENERAL)
+    {
+        for (uint8_t i = 0U;
+             i < UI_GENERAL_MENU_ENTRY_COUNT;
+             i++)
+        {
+            UI_DrawMenuRow(
+                i,
+                uiGeneralMenuEntries[i].label
+            );
+        }
 
         return;
     }
@@ -4483,6 +4559,19 @@ static void UI_MenuHandleEncoderStep(
 static void UI_MenuHandleEnter(void)
 {
     if (uiMenuPage ==
+        UI_MENU_PAGE_GENERAL)
+    {
+        if (uiMenuSelectedRow >= 0 &&
+            uiMenuSelectedRow <
+                (int16_t)UI_GENERAL_MENU_ENTRY_COUNT)
+        {
+            uiGeneralMenuEntries[uiMenuSelectedRow].action();
+        }
+
+        return;
+    }
+
+    if (uiMenuPage ==
         UI_MENU_PAGE_DELETE_CONFIRM)
     {
         if (uiMenuSelectedRow ==
@@ -4548,15 +4637,30 @@ static void UI_MenuHandleEnter(void)
         return;
     }
 
-    /*
-     * General Menu wird im folgenden Schritt mit
-     * einer eigenen Unterseite belegt.
-     */
+    if (uiMenuSelectedRow ==
+        UI_MENU_GENERAL_ROW)
+    {
+        uiMenuPage =
+            UI_MENU_PAGE_GENERAL;
+        uiMenuSelectedRow = 0;
+        UI_DrawMenu();
+        return;
+    }
 }
 
 
 static void UI_MenuHandleReturn(void)
 {
+    if (uiMenuPage ==
+        UI_MENU_PAGE_GENERAL)
+    {
+        uiMenuPage = UI_MENU_PAGE_ROOT;
+        uiMenuSelectedRow =
+            UI_MENU_GENERAL_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
     if (uiMenuPage ==
         UI_MENU_PAGE_DELETE_CONFIRM)
     {
