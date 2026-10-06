@@ -712,7 +712,8 @@ typedef enum
     UI_MENU_PAGE_ROOT = 0,
     UI_MENU_PAGE_DELETE_CONFIRM,
     UI_MENU_PAGE_GENERAL,
-    UI_MENU_PAGE_SAVE_PRESET
+    UI_MENU_PAGE_SAVE_PRESET,
+    UI_MENU_PAGE_SAVE_NAME
 
 } UI_MenuPage;
 
@@ -738,7 +739,7 @@ static int16_t uiMenuItemSelectionStartIndex = -1;
 /* -------------------------------------------------------------------------- */
 
 /*
- * Die Seite belegt den ganzen Bildschirm (160 x 128):
+ * Die Preset-Liste belegt den ganzen Bildschirm (160 x 128):
  *
  *   y   2 ..  13   Bank-Zeile (immer sichtbar)
  *   y  16 .. 111   8 sichtbare Preset-Zeilen (scrollen)
@@ -763,9 +764,6 @@ static int16_t uiMenuItemSelectionStartIndex = -1;
 /* Zeile 0 = Bank, Zeilen 1 bis 24 = Presets. */
 #define UI_SAVE_LAST_ROW              ((int16_t)PRESET_SLOTS_PER_BANK)
 
-/* Name eines neu gespeicherten Presets, bis er umbenannt werden kann. */
-#define UI_PRESET_DEFAULT_NAME        "unnamed"
-
 typedef enum
 {
     UI_SAVE_STATUS_NONE = 0,
@@ -773,7 +771,7 @@ typedef enum
     UI_SAVE_STATUS_SAVED,
     UI_SAVE_STATUS_MEMORY_FULL,
     UI_SAVE_STATUS_ERROR,
-    UI_SAVE_STATUS_OVERWRITE
+    UI_SAVE_STATUS_NAME_HINT
 
 } UI_SaveStatus;
 
@@ -785,10 +783,53 @@ static uint8_t uiPresetBankEditing = 0U;
 /* Index des ersten sichtbaren Presets (0 bis 16). */
 static uint8_t uiPresetScrollTop = 0U;
 
-/* Slot (0 bis 23), der auf die Ueberschreiben-Bestaetigung wartet, sonst -1. */
-static int8_t uiPresetOverwriteSlot = -1;
-
 static UI_SaveStatus uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+
+/* -------------------------------------------------------------------------- */
+/* Save Preset: Untermenue mit Namenseditor                                   */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Zeilen des Untermenues (y in Pixeln):
+ *
+ *   y   2          Kopfzeile "Bank n Preset nn"
+ *   y  20 ..  35   Zeile 0: Name (editierbar)
+ *   y  38 ..  53   Zeile 1: Save
+ *   y  56 ..  71   Zeile 2: Cancel
+ */
+#define UI_NAME_ROW_NAME               0U
+#define UI_NAME_ROW_SAVE               1U
+#define UI_NAME_ROW_CANCEL             2U
+#define UI_NAME_ROW_COUNT              3U
+
+#define UI_NAME_FIRST_ROW_Y           20U
+#define UI_NAME_ROW_PITCH             18U
+#define UI_NAME_ROW_HEIGHT            16U
+#define UI_NAME_TEXT_Y_OFFSET          4U
+
+#define UI_NAME_MAX_LENGTH            (PRESET_NAME_LENGTH - 1U)
+
+/* Zeichen, die der Encoder im Namenseditor durchlaeuft. */
+static const char uiNameAlphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789- ";
+
+#define UI_NAME_ALPHABET_SIZE \
+    ((int8_t)(sizeof(uiNameAlphabet) - 1U))
+
+static uint8_t uiNameSlot = 0U;
+static uint8_t uiNameRow = UI_NAME_ROW_SAVE;
+
+/* Bereits gesetzte Zeichen (nullterminiert). */
+static char uiNameBuffer[PRESET_NAME_LENGTH];
+static uint8_t uiNameLength = 0U;
+
+/* Name vor dem Editieren, wird bei leerem Ergebnis wiederhergestellt. */
+static char uiNameOriginal[PRESET_NAME_LENGTH];
+
+/* Gerade ausgewaehltes Zeichen (Index in uiNameAlphabet), -1 = keines. */
+static int8_t uiNameCandidate = -1;
+static uint8_t uiNameEditing = 0U;
 
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
@@ -4266,9 +4307,27 @@ static uint8_t UI_SaveAppendUInt(
 }
 
 
+/* Zweistellig mit fuehrender Null (0 bis 99). */
+static uint8_t UI_SaveAppendUInt2(
+    char *buffer,
+    uint8_t position,
+    uint8_t capacity,
+    uint8_t value)
+{
+    if (value < 10U)
+    {
+        position = UI_SaveAppendText(
+            buffer, position, capacity, "0");
+    }
+
+    return UI_SaveAppendUInt(
+        buffer, position, capacity, value);
+}
+
+
 /*
  * Zeile 0:  "<bank> <bankname>"      z.B. "3 bank 3"
- * Zeile n:  "preset<n>: <name>"      z.B. "preset5: empty"
+ * Zeile n:  "<nn>: <name>"           z.B. "05: empty"
  */
 static void UI_SaveBuildRowText(
     uint8_t row,
@@ -4299,9 +4358,7 @@ static void UI_SaveBuildRowText(
     uint8_t used = PresetStore_GetSlotName(
         uiPresetBank, (uint8_t)(row - 1U), presetName);
 
-    position = UI_SaveAppendText(
-        text, position, UI_SAVE_TEXT_CAPACITY, "preset");
-    position = UI_SaveAppendUInt(
+    position = UI_SaveAppendUInt2(
         text, position, UI_SAVE_TEXT_CAPACITY, row);
     position = UI_SaveAppendText(
         text, position, UI_SAVE_TEXT_CAPACITY, ": ");
@@ -4314,7 +4371,7 @@ static void UI_SaveBuildRowText(
 
 
 /* -------------------------------------------------------------------------- */
-/* Save Preset: Zeichnen                                                      */
+/* Save Preset: Zeichnen der Liste                                            */
 /* -------------------------------------------------------------------------- */
 
 static void UI_SaveDrawRow(uint8_t row)
@@ -4417,6 +4474,10 @@ static void UI_SaveDrawList(void)
 }
 
 
+/*
+ * Statuszeile unter der Trennlinie. Wird von der Preset-Liste und vom
+ * Untermenue gemeinsam benutzt.
+ */
 static void UI_SaveDrawStatus(void)
 {
     char text[UI_SAVE_TEXT_CAPACITY];
@@ -4452,11 +4513,10 @@ static void UI_SaveDrawStatus(void)
                 text, 0U, UI_SAVE_TEXT_CAPACITY, "Save failed");
             break;
 
-        case UI_SAVE_STATUS_OVERWRITE:
-            color = UI_COLOR_LOOP_UNCONFIRMED;
+        case UI_SAVE_STATUS_NAME_HINT:
             UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY,
-                "Overwrite? Enter/Return");
+                "Enter set  Return del");
             break;
 
         case UI_SAVE_STATUS_SAVED:
@@ -4506,7 +4566,7 @@ static void UI_SaveDrawStatus(void)
 }
 
 
-/* Zeichnet die komplette Seite neu (mit Bildschirm loeschen). */
+/* Zeichnet die komplette Liste neu (mit Bildschirm loeschen). */
 static void UI_SaveDrawPage(void)
 {
     ST7735_FillRect(
@@ -4533,7 +4593,7 @@ static void UI_SaveDrawPage(void)
 
 
 /* -------------------------------------------------------------------------- */
-/* Save Preset: Layout serialisieren                                          */
+/* Save Preset: Layout serialisieren und speichern                            */
 /* -------------------------------------------------------------------------- */
 
 /*
@@ -4583,8 +4643,501 @@ static uint8_t UI_PresetSerializeLayout(
 }
 
 
+/*
+ * Speichert das aktuelle Layout unter dem Namen in den Slot der
+ * gewaehlten Bank und kehrt danach zur Preset-Liste zurueck, die das
+ * Ergebnis in der Statuszeile zeigt.
+ */
+static void UI_SaveExecute(
+    uint8_t slot,
+    const char *name)
+{
+    uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
+
+    uint8_t length =
+        UI_PresetSerializeLayout(layout, sizeof(layout));
+
+    if (length == 0U)
+    {
+        uiSaveStatus = UI_SAVE_STATUS_ERROR;
+    }
+    else
+    {
+        /*
+         * Das Schreiben blockiert, deshalb vorher anzeigen.
+         */
+        uiSaveStatus = UI_SAVE_STATUS_SAVING;
+        UI_SaveDrawStatus();
+
+        PresetStoreStatus result = PresetStore_SavePreset(
+            uiPresetBank, slot, name, layout, length);
+
+        if (result == PRESET_STORE_OK)
+        {
+            uiSaveStatus = UI_SAVE_STATUS_SAVED;
+        }
+        else if (result == PRESET_STORE_ERR_FULL)
+        {
+            uiSaveStatus = UI_SAVE_STATUS_MEMORY_FULL;
+        }
+        else
+        {
+            uiSaveStatus = UI_SAVE_STATUS_ERROR;
+        }
+    }
+
+    uiNameEditing = 0U;
+    uiMenuPage = UI_MENU_PAGE_SAVE_PRESET;
+    UI_SaveDrawPage();
+}
+
+
 /* -------------------------------------------------------------------------- */
-/* Save Preset: Bedienung                                                     */
+/* Save Preset: Untermenue mit Namenseditor                                   */
+/* -------------------------------------------------------------------------- */
+
+static void UI_NameCopy(
+    char *destination,
+    const char *source)
+{
+    uint8_t i = 0U;
+
+    while (source[i] != '\0' && i < UI_NAME_MAX_LENGTH)
+    {
+        destination[i] = source[i];
+        i++;
+    }
+
+    destination[i] = '\0';
+}
+
+
+static uint8_t UI_NameLengthOf(const char *text)
+{
+    uint8_t length = 0U;
+
+    while (text[length] != '\0' && length < UI_NAME_MAX_LENGTH)
+    {
+        length++;
+    }
+
+    return length;
+}
+
+
+static int8_t UI_NameAlphabetIndex(char c)
+{
+    for (int8_t i = 0; i < UI_NAME_ALPHABET_SIZE; i++)
+    {
+        if (uiNameAlphabet[i] == c)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+
+/*
+ * X-Position des Zeichens, das hinter den bereits gesetzten Zeichen
+ * folgt. Die Breite wird mit der Schrift gemessen: Breite von
+ * "<gesetzt>A" minus Breite von "A".
+ */
+static uint16_t UI_NameNextCharX(void)
+{
+    if (uiNameLength == 0U)
+    {
+        return UI_SAVE_TEXT_X_OFFSET;
+    }
+
+    char text[PRESET_NAME_LENGTH + 1U];
+    char single[2] = { 'A', '\0' };
+
+    uint8_t i = 0U;
+
+    for (; i < uiNameLength; i++)
+    {
+        text[i] = uiNameBuffer[i];
+    }
+
+    text[i++] = 'A';
+    text[i] = '\0';
+
+    uint16_t fullWidth = Font5x7_GetStringWidth(text, 1U);
+    uint16_t singleWidth = Font5x7_GetStringWidth(single, 1U);
+
+    return (uint16_t)(UI_SAVE_TEXT_X_OFFSET +
+                      fullWidth - singleWidth);
+}
+
+
+static void UI_NameDrawRow(uint8_t row)
+{
+    uint16_t y = (uint16_t)(UI_NAME_FIRST_ROW_Y +
+                 ((uint16_t)row * UI_NAME_ROW_PITCH));
+    uint16_t textY = (uint16_t)(y + UI_NAME_TEXT_Y_OFFSET);
+    uint16_t background = UI_COLOR_BACKGROUND;
+
+    if (row == uiNameRow)
+    {
+        background =
+            (row == UI_NAME_ROW_NAME && uiNameEditing) ?
+            UI_COLOR_BORDER_GRABBED :
+            UI_COLOR_BORDER_SELECTED;
+    }
+
+    ST7735_FillRect(
+        0U,
+        y,
+        UI_SAVE_ROW_WIDTH,
+        UI_NAME_ROW_HEIGHT,
+        background
+    );
+
+    if (row == UI_NAME_ROW_SAVE)
+    {
+        Font5x7_DrawString(
+            UI_SAVE_TEXT_X_OFFSET, textY, "Save",
+            UI_COLOR_TEXT_LIGHT, background, 1U);
+        return;
+    }
+
+    if (row == UI_NAME_ROW_CANCEL)
+    {
+        Font5x7_DrawString(
+            UI_SAVE_TEXT_X_OFFSET, textY, "Cancel",
+            UI_COLOR_TEXT_LIGHT, background, 1U);
+        return;
+    }
+
+    Font5x7_DrawString(
+        UI_SAVE_TEXT_X_OFFSET, textY, uiNameBuffer,
+        UI_COLOR_TEXT_LIGHT, background, 1U);
+
+    if (!uiNameEditing ||
+        uiNameLength >= UI_NAME_MAX_LENGTH)
+    {
+        return;
+    }
+
+    /*
+     * Naechstes Zeichen: gelb hinterlegt, solange noch keines
+     * ausgewaehlt ist als gelber Strich.
+     */
+    uint16_t x = UI_NameNextCharX();
+
+    if (uiNameCandidate >= 0)
+    {
+        char single[2] =
+            { uiNameAlphabet[uiNameCandidate], '\0' };
+
+        ST7735_FillRect(
+            x - 1U, textY - 1U, 7U, 9U,
+            UI_COLOR_LOOP_UNCONFIRMED);
+
+        Font5x7_DrawString(
+            x, textY, single,
+            UI_COLOR_TEXT_DARK, UI_COLOR_LOOP_UNCONFIRMED, 1U);
+    }
+    else
+    {
+        ST7735_DrawLine(
+            x, textY + 8U, x + 4U, textY + 8U,
+            UI_COLOR_LOOP_UNCONFIRMED);
+    }
+}
+
+
+/* Zeichnet das Untermenue komplett neu (mit Bildschirm loeschen). */
+static void UI_NameDrawPage(void)
+{
+    char header[UI_SAVE_TEXT_CAPACITY];
+    uint8_t position = 0U;
+
+    ST7735_FillRect(
+        0U,
+        0U,
+        UI_DISPLAY_WIDTH,
+        UI_DISPLAY_HEIGHT,
+        UI_COLOR_BACKGROUND
+    );
+
+    position = UI_SaveAppendText(
+        header, 0U, UI_SAVE_TEXT_CAPACITY, "Bank ");
+    position = UI_SaveAppendUInt(
+        header, position, UI_SAVE_TEXT_CAPACITY, uiPresetBank);
+    position = UI_SaveAppendText(
+        header, position, UI_SAVE_TEXT_CAPACITY, " Preset ");
+    UI_SaveAppendUInt2(
+        header, position, UI_SAVE_TEXT_CAPACITY,
+        (uint8_t)(uiNameSlot + 1U));
+
+    Font5x7_DrawString(
+        UI_SAVE_TEXT_X_OFFSET,
+        UI_SAVE_HEADER_Y,
+        header,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1U
+    );
+
+    for (uint8_t row = 0U; row < UI_NAME_ROW_COUNT; row++)
+    {
+        UI_NameDrawRow(row);
+    }
+
+    ST7735_DrawLine(
+        0U,
+        UI_SAVE_SEPARATOR_Y,
+        UI_DISPLAY_WIDTH - 1U,
+        UI_SAVE_SEPARATOR_Y,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    UI_SaveDrawStatus();
+}
+
+
+/*
+ * Oeffnet das Untermenue fuer einen Slot. Der Name ist bei einem
+ * belegten Preset der vorhandene, bei einem leeren der Vorschlag
+ * "preset nn". Der Cursor steht auf "Save".
+ */
+static void UI_NameOpen(uint8_t slot)
+{
+    char name[PRESET_NAME_LENGTH];
+
+    if (!PresetStore_GetSlotName(uiPresetBank, slot, name))
+    {
+        uint8_t position = UI_SaveAppendText(
+            name, 0U, sizeof(name), "preset ");
+
+        UI_SaveAppendUInt2(
+            name, position, sizeof(name), (uint8_t)(slot + 1U));
+    }
+
+    uiNameSlot = slot;
+    UI_NameCopy(uiNameBuffer, name);
+    UI_NameCopy(uiNameOriginal, name);
+    uiNameLength = UI_NameLengthOf(uiNameBuffer);
+
+    uiNameRow = UI_NAME_ROW_SAVE;
+    uiNameCandidate = -1;
+    uiNameEditing = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+    uiMenuPage = UI_MENU_PAGE_SAVE_NAME;
+    UI_DrawMenu();
+}
+
+
+static void UI_NameBackToList(void)
+{
+    uiNameEditing = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+    uiMenuPage = UI_MENU_PAGE_SAVE_PRESET;
+    UI_SaveDrawPage();
+}
+
+
+/*
+ * Click auf die Namenszeile: Der Vorschlag wird geloescht und die
+ * Eingabe beginnt mit dem ersten Zeichen.
+ */
+static void UI_NameStartEditing(void)
+{
+    uiNameBuffer[0] = '\0';
+    uiNameLength = 0U;
+    uiNameCandidate = -1;
+    uiNameEditing = 1U;
+    uiSaveStatus = UI_SAVE_STATUS_NAME_HINT;
+
+    UI_NameDrawRow(UI_NAME_ROW_NAME);
+    UI_SaveDrawStatus();
+}
+
+
+/*
+ * Beendet den Editor. Leerzeichen am Ende werden entfernt. Bleibt der
+ * Name leer, gilt wieder der Name von vor dem Editieren.
+ */
+static void UI_NameFinishEditing(void)
+{
+    while (uiNameLength > 0U &&
+           uiNameBuffer[uiNameLength - 1U] == ' ')
+    {
+        uiNameLength--;
+    }
+
+    uiNameBuffer[uiNameLength] = '\0';
+
+    if (uiNameLength == 0U)
+    {
+        UI_NameCopy(uiNameBuffer, uiNameOriginal);
+        uiNameLength = UI_NameLengthOf(uiNameBuffer);
+    }
+
+    uiNameCandidate = -1;
+    uiNameEditing = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+    UI_NameDrawRow(UI_NAME_ROW_NAME);
+    UI_SaveDrawStatus();
+}
+
+
+static void UI_NameHandleEncoder(int8_t direction)
+{
+    if (direction == 0)
+    {
+        return;
+    }
+
+    if (uiNameEditing)
+    {
+        /*
+         * Ohne ausgewaehltes Zeichen: im Uhrzeigersinn "A", dagegen
+         * das letzte Zeichen. Danach durchlaeuft der Encoder den
+         * Zeichensatz mit Umlauf.
+         */
+        if (uiNameCandidate < 0)
+        {
+            uiNameCandidate =
+                (direction > 0) ?
+                0 :
+                (int8_t)(UI_NAME_ALPHABET_SIZE - 1);
+        }
+        else if (direction > 0)
+        {
+            uiNameCandidate = (int8_t)
+                ((uiNameCandidate + 1) % UI_NAME_ALPHABET_SIZE);
+        }
+        else
+        {
+            uiNameCandidate = (int8_t)
+                ((uiNameCandidate + UI_NAME_ALPHABET_SIZE - 1) %
+                 UI_NAME_ALPHABET_SIZE);
+        }
+
+        UI_NameDrawRow(UI_NAME_ROW_NAME);
+        return;
+    }
+
+    int16_t oldRow = uiNameRow;
+    int16_t newRow = oldRow + direction;
+
+    if (newRow < 0)
+    {
+        newRow = 0;
+    }
+
+    if (newRow > (int16_t)(UI_NAME_ROW_COUNT - 1U))
+    {
+        newRow = (int16_t)(UI_NAME_ROW_COUNT - 1U);
+    }
+
+    if (newRow == oldRow)
+    {
+        return;
+    }
+
+    uiNameRow = (uint8_t)newRow;
+
+    UI_NameDrawRow((uint8_t)oldRow);
+    UI_NameDrawRow((uint8_t)newRow);
+}
+
+
+static void UI_NameHandleEnter(void)
+{
+    if (uiNameEditing)
+    {
+        if (uiNameCandidate < 0)
+        {
+            /*
+             * Enter ohne ausgewaehltes Zeichen verlaesst den Editor.
+             */
+            UI_NameFinishEditing();
+            return;
+        }
+
+        uiNameBuffer[uiNameLength++] =
+            uiNameAlphabet[uiNameCandidate];
+        uiNameBuffer[uiNameLength] = '\0';
+        uiNameCandidate = -1;
+
+        if (uiNameLength >= UI_NAME_MAX_LENGTH)
+        {
+            /*
+             * Name ist voll.
+             */
+            UI_NameFinishEditing();
+            return;
+        }
+
+        UI_NameDrawRow(UI_NAME_ROW_NAME);
+        return;
+    }
+
+    if (uiNameRow == UI_NAME_ROW_NAME)
+    {
+        UI_NameStartEditing();
+    }
+    else if (uiNameRow == UI_NAME_ROW_SAVE)
+    {
+        UI_SaveExecute(uiNameSlot, uiNameBuffer);
+    }
+    else
+    {
+        UI_NameBackToList();
+    }
+}
+
+
+static void UI_NameHandleReturn(void)
+{
+    if (!uiNameEditing)
+    {
+        UI_NameBackToList();
+        return;
+    }
+
+    if (uiNameLength == 0U)
+    {
+        if (uiNameCandidate >= 0)
+        {
+            /*
+             * Das erste Zeichen wieder verwerfen.
+             */
+            uiNameCandidate = -1;
+            UI_NameDrawRow(UI_NAME_ROW_NAME);
+        }
+        else
+        {
+            /*
+             * Nichts mehr zu loeschen: Editor verlassen.
+             */
+            UI_NameFinishEditing();
+        }
+
+        return;
+    }
+
+    /*
+     * Das aktuelle Zeichen wird verworfen, das vorherige wieder
+     * editierbar.
+     */
+    uiNameLength--;
+    uiNameCandidate = UI_NameAlphabetIndex(uiNameBuffer[uiNameLength]);
+    uiNameBuffer[uiNameLength] = '\0';
+
+    UI_NameDrawRow(UI_NAME_ROW_NAME);
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Save Preset: Bedienung der Preset-Liste                                    */
 /* -------------------------------------------------------------------------- */
 
 static void UI_SaveEnsureSelectionVisible(void)
@@ -4606,59 +5159,6 @@ static void UI_SaveEnsureSelectionVisible(void)
         uiPresetScrollTop =
             (uint8_t)(preset - UI_SAVE_VISIBLE_PRESETS + 1);
     }
-}
-
-
-static void UI_SaveExecute(uint8_t slot)
-{
-    uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
-    char name[PRESET_NAME_LENGTH];
-
-    uiPresetOverwriteSlot = -1;
-
-    uint8_t length =
-        UI_PresetSerializeLayout(layout, sizeof(layout));
-
-    if (length == 0U)
-    {
-        uiSaveStatus = UI_SAVE_STATUS_ERROR;
-        UI_SaveDrawStatus();
-        return;
-    }
-
-    /*
-     * Beim Ueberschreiben bleibt der vorhandene Name erhalten.
-     */
-    if (!PresetStore_GetSlotName(uiPresetBank, slot, name))
-    {
-        UI_SaveAppendText(
-            name, 0U, sizeof(name), UI_PRESET_DEFAULT_NAME);
-    }
-
-    /*
-     * Das Schreiben blockiert, deshalb vorher anzeigen.
-     */
-    uiSaveStatus = UI_SAVE_STATUS_SAVING;
-    UI_SaveDrawStatus();
-
-    PresetStoreStatus result = PresetStore_SavePreset(
-        uiPresetBank, slot, name, layout, length);
-
-    if (result == PRESET_STORE_OK)
-    {
-        uiSaveStatus = UI_SAVE_STATUS_SAVED;
-    }
-    else if (result == PRESET_STORE_ERR_FULL)
-    {
-        uiSaveStatus = UI_SAVE_STATUS_MEMORY_FULL;
-    }
-    else
-    {
-        uiSaveStatus = UI_SAVE_STATUS_ERROR;
-    }
-
-    UI_SaveDrawRow((uint8_t)(slot + 1U));
-    UI_SaveDrawStatus();
 }
 
 
@@ -4687,7 +5187,6 @@ static void UI_SaveHandleEncoder(int8_t direction)
                  PRESET_BANK_COUNT);
         }
 
-        uiPresetOverwriteSlot = -1;
         uiSaveStatus = UI_SAVE_STATUS_NONE;
 
         UI_SaveDrawRow(0U);
@@ -4730,11 +5229,10 @@ static void UI_SaveHandleEncoder(int8_t direction)
     }
 
     /*
-     * Eine offene Ueberschreiben-Abfrage verfaellt beim Weiterdrehen.
+     * Eine Meldung vom letzten Speichern verschwindet beim Weiterdrehen.
      */
-    if (uiPresetOverwriteSlot >= 0)
+    if (uiSaveStatus != UI_SAVE_STATUS_NONE)
     {
-        uiPresetOverwriteSlot = -1;
         uiSaveStatus = UI_SAVE_STATUS_NONE;
         UI_SaveDrawStatus();
     }
@@ -4758,7 +5256,6 @@ static void UI_SaveHandleEnter(void)
             uiPresetBankEditing = 1U;
         }
 
-        uiPresetOverwriteSlot = -1;
         uiSaveStatus = UI_SAVE_STATUS_NONE;
 
         UI_SaveDrawRow(0U);
@@ -4766,22 +5263,10 @@ static void UI_SaveHandleEnter(void)
         return;
     }
 
-    uint8_t slot = (uint8_t)(uiMenuSelectedRow - 1);
-    char existingName[PRESET_NAME_LENGTH];
-
-    if (PresetStore_GetSlotName(uiPresetBank, slot, existingName) &&
-        uiPresetOverwriteSlot != (int8_t)slot)
-    {
-        /*
-         * Belegter Slot: erst bestaetigen lassen.
-         */
-        uiPresetOverwriteSlot = (int8_t)slot;
-        uiSaveStatus = UI_SAVE_STATUS_OVERWRITE;
-        UI_SaveDrawStatus();
-        return;
-    }
-
-    UI_SaveExecute(slot);
+    /*
+     * Enter auf einem Preset: Untermenue mit Namenseditor oeffnen.
+     */
+    UI_NameOpen((uint8_t)(uiMenuSelectedRow - 1));
 }
 
 
@@ -4797,14 +5282,6 @@ static void UI_SaveHandleReturn(void)
 
         UI_SaveDrawRow(0U);
         UI_SaveDrawList();
-        return;
-    }
-
-    if (uiPresetOverwriteSlot >= 0)
-    {
-        uiPresetOverwriteSlot = -1;
-        uiSaveStatus = UI_SAVE_STATUS_NONE;
-        UI_SaveDrawStatus();
         return;
     }
 
@@ -4828,7 +5305,7 @@ static void UI_MenuSavePreset(void)
     }
 
     uiPresetBankEditing = 0U;
-    uiPresetOverwriteSlot = -1;
+    uiNameEditing = 0U;
     uiSaveStatus = UI_SAVE_STATUS_NONE;
     uiPresetScrollTop = 0U;
 
@@ -5032,6 +5509,13 @@ static void UI_DrawMenu(void)
         return;
     }
 
+    if (uiMenuPage ==
+        UI_MENU_PAGE_SAVE_NAME)
+    {
+        UI_NameDrawPage();
+        return;
+    }
+
     ST7735_FillRect(
         UI_MENU_X,
         UI_MENU_Y,
@@ -5201,6 +5685,13 @@ static void UI_MenuHandleEncoderStep(
         return;
     }
 
+    if (uiMenuPage ==
+        UI_MENU_PAGE_SAVE_NAME)
+    {
+        UI_NameHandleEncoder(direction);
+        return;
+    }
+
     if (direction == 0)
     {
         return;
@@ -5255,6 +5746,13 @@ static void UI_MenuHandleEnter(void)
         UI_MENU_PAGE_SAVE_PRESET)
     {
         UI_SaveHandleEnter();
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_SAVE_NAME)
+    {
+        UI_NameHandleEnter();
         return;
     }
 
@@ -5355,6 +5853,13 @@ static void UI_MenuHandleReturn(void)
         UI_MENU_PAGE_SAVE_PRESET)
     {
         UI_SaveHandleReturn();
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_SAVE_NAME)
+    {
+        UI_NameHandleReturn();
         return;
     }
 
