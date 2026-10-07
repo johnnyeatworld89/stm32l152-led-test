@@ -399,3 +399,201 @@ PresetStoreStatus PresetStore_SavePreset(
 
     return PRESET_STORE_OK;
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* Read layout, rename, delete                                                */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Copies a name into 4 words, zero padded. Stops at the first
+ * character that is not printable.
+ */
+static void Store_PackName(
+    const char *name,
+    uint32_t *words)
+{
+    uint8_t *bytes = (uint8_t *)words;
+
+    memset(words, 0, PRESET_NAME_LENGTH);
+
+    for (uint8_t i = 0U; i < (PRESET_NAME_LENGTH - 1U); i++)
+    {
+        uint8_t c = (uint8_t)name[i];
+
+        if (c < 0x20U || c > 0x7EU)
+        {
+            break;
+        }
+
+        bytes[i] = c;
+    }
+}
+
+
+/*
+ * Writes the 4 words of a name block and verifies them.
+ */
+static PresetStoreStatus Store_WriteNameBlock(
+    uint32_t address,
+    const uint32_t *words)
+{
+    if (HAL_FLASHEx_DATAEEPROM_Unlock() != HAL_OK)
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    HAL_StatusTypeDef status = HAL_OK;
+
+    for (uint8_t i = 0U;
+         i < (PRESET_NAME_LENGTH / 4U) && status == HAL_OK;
+         i++)
+    {
+        status = Store_WriteWord(address + (4UL * i), words[i]);
+    }
+
+    HAL_FLASHEx_DATAEEPROM_Lock();
+
+    if (status != HAL_OK ||
+        memcmp((const void *)address, words, PRESET_NAME_LENGTH) != 0)
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    return PRESET_STORE_OK;
+}
+
+
+PresetStoreStatus PresetStore_ReadLayout(
+    uint8_t bank,
+    uint8_t slot,
+    uint8_t *layout,
+    uint8_t *length)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        layout == NULL ||
+        length == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    const volatile uint8_t *record =
+        (const volatile uint8_t *)Store_RecordAddress(
+            (uint8_t)index);
+
+    uint8_t layoutLength = record[RECORD_OFFSET_INFO + 1U];
+
+    if (layoutLength > PRESET_LAYOUT_MAX_BYTES)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    for (uint8_t i = 0U; i < layoutLength; i++)
+    {
+        layout[i] = record[RECORD_OFFSET_LAYOUT + i];
+    }
+
+    *length = layoutLength;
+
+    return PRESET_STORE_OK;
+}
+
+
+PresetStoreStatus PresetStore_SetPresetName(
+    uint8_t bank,
+    uint8_t slot,
+    const char *name)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        name == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    uint32_t words[PRESET_NAME_LENGTH / 4U];
+
+    Store_PackName(name, words);
+
+    return Store_WriteNameBlock(
+        Store_RecordAddress((uint8_t)index) + RECORD_OFFSET_NAME,
+        words);
+}
+
+
+PresetStoreStatus PresetStore_SetBankName(
+    uint8_t bank,
+    const char *name)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        name == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    uint32_t words[PRESET_BANK_NAME_LENGTH / 4U];
+
+    Store_PackName(name, words);
+
+    return Store_WriteNameBlock(
+        STORE_EEPROM_BASE +
+            STORE_BANK_NAMES_OFFSET +
+            ((uint32_t)bank * PRESET_BANK_NAME_LENGTH),
+        words);
+}
+
+
+PresetStoreStatus PresetStore_DeletePreset(
+    uint8_t bank,
+    uint8_t slot)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    uint32_t address = Store_RecordAddress((uint8_t)index);
+
+    if (HAL_FLASHEx_DATAEEPROM_Unlock() != HAL_OK)
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    /*
+     * Word 0 holds the valid marker. Clearing it frees the record.
+     */
+    HAL_StatusTypeDef status = Store_WriteWord(address, 0U);
+
+    HAL_FLASHEx_DATAEEPROM_Lock();
+
+    if (status != HAL_OK ||
+        Store_RecordIsValid((uint8_t)index, NULL, NULL))
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    return PRESET_STORE_OK;
+}
