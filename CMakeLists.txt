@@ -31,6 +31,7 @@ Libraries/GFX/font5x7.c
 Libraries/ost4m18132a/ost4ml8132a.c
 
 Libraries/MCP23S17/mcp23s17.c
+Libraries/Midi/midi.c
 
 
 
@@ -44,6 +45,7 @@ target_include_directories(firmware PRIVATE
     Libraries/GFX
     Libraries/ost4m18132a
     Libraries/MCP23S17
+    Libraries/Midi
 
 
     Drivers/STM32L1xx_HAL_Driver/Inc
