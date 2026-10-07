@@ -11,6 +11,7 @@
 #include "st7735.h"
 #include "ui.h"
 #include "mcp23s17.h"
+#include "midi.h"
 
 
 /* -------------------------------------------------------------------------- */
@@ -993,6 +994,23 @@ int main(void)
     MX_GPIO_Init();
 
     MX_SPI1_Init();
+
+    /*
+     * Initialize MIDI on USART2:
+     *
+     * PA2 = MIDI TX
+     * PA3 = MIDI RX
+     * 31250 baud, 8N1
+     */
+    if (MIDI_Init() != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    if (MIDI_StartReceive() != HAL_OK)
+    {
+        Error_Handler();
+    }
 
 
     /*
