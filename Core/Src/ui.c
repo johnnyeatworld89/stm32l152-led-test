@@ -4490,7 +4490,7 @@ static void UI_SaveDrawStatus(void)
     {
         case UI_SAVE_STATUS_SAVING:
             UI_SaveAppendText(
-                text, 0U, UI_SAVE_TEXT_CAPACITY, "Saving...");
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Saving");
             break;
 
         case UI_SAVE_STATUS_MEMORY_FULL:
@@ -4521,7 +4521,7 @@ static void UI_SaveDrawStatus(void)
 
         case UI_SAVE_STATUS_SAVED:
             position = UI_SaveAppendText(
-                text, 0U, UI_SAVE_TEXT_CAPACITY, "Saved. Used ");
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Saved - Used ");
             position = UI_SaveAppendUInt(
                 text, position, UI_SAVE_TEXT_CAPACITY,
                 PresetStore_GetUsedCount());
@@ -4725,8 +4725,31 @@ static uint8_t UI_NameLengthOf(const char *text)
 }
 
 
+static uint8_t UI_NameEquals(
+    const char *a,
+    const char *b)
+{
+    while (*a != '\0' && *a == *b)
+    {
+        a++;
+        b++;
+    }
+
+    return (*a == *b) ? 1U : 0U;
+}
+
+
 static int8_t UI_NameAlphabetIndex(char c)
 {
+    /*
+     * Kleinbuchstaben (z.B. aus aelteren Presets) werden wie
+     * Grossbuchstaben behandelt, weil der Zeichensatz nur diese kennt.
+     */
+    if (c >= 'a' && c <= 'z')
+    {
+        c = (char)(c - ('a' - 'A'));
+    }
+
     for (int8_t i = 0; i < UI_NAME_ALPHABET_SIZE; i++)
     {
         if (uiNameAlphabet[i] == c)
@@ -4899,6 +4922,19 @@ static void UI_NameDrawPage(void)
 }
 
 
+/* Namensvorschlag fuer einen Slot: "preset nn". */
+static void UI_NameBuildSuggestion(
+    uint8_t slot,
+    char *name)
+{
+    uint8_t position = UI_SaveAppendText(
+        name, 0U, PRESET_NAME_LENGTH, "preset ");
+
+    UI_SaveAppendUInt2(
+        name, position, PRESET_NAME_LENGTH, (uint8_t)(slot + 1U));
+}
+
+
 /*
  * Oeffnet das Untermenue fuer einen Slot. Der Name ist bei einem
  * belegten Preset der vorhandene, bei einem leeren der Vorschlag
@@ -4910,11 +4946,7 @@ static void UI_NameOpen(uint8_t slot)
 
     if (!PresetStore_GetSlotName(uiPresetBank, slot, name))
     {
-        uint8_t position = UI_SaveAppendText(
-            name, 0U, sizeof(name), "preset ");
-
-        UI_SaveAppendUInt2(
-            name, position, sizeof(name), (uint8_t)(slot + 1U));
+        UI_NameBuildSuggestion(slot, name);
     }
 
     uiNameSlot = slot;
@@ -4942,14 +4974,46 @@ static void UI_NameBackToList(void)
 
 
 /*
- * Click auf die Namenszeile: Der Vorschlag wird geloescht und die
- * Eingabe beginnt mit dem ersten Zeichen.
+ * Click auf die Namenszeile.
+ *
+ * Steht dort der Namensvorschlag ("preset nn"), wird er geloescht und
+ * die Eingabe beginnt mit dem ersten Zeichen.
+ *
+ * Jeder andere Name bleibt erhalten. Der Editor startet dann hinter
+ * dem letzten Zeichen: ein neues Zeichen wird angehaengt, Return holt
+ * das letzte Zeichen zum Aendern zurueck, Enter beendet den Editor
+ * ohne Aenderung.
  */
 static void UI_NameStartEditing(void)
 {
-    uiNameBuffer[0] = '\0';
-    uiNameLength = 0U;
-    uiNameCandidate = -1;
+    char suggestion[PRESET_NAME_LENGTH];
+
+    UI_NameBuildSuggestion(uiNameSlot, suggestion);
+
+    if (UI_NameEquals(uiNameBuffer, suggestion))
+    {
+        uiNameBuffer[0] = '\0';
+        uiNameLength = 0U;
+        uiNameCandidate = -1;
+    }
+    else
+    {
+        uiNameLength = UI_NameLengthOf(uiNameBuffer);
+        uiNameCandidate = -1;
+
+        if (uiNameLength >= UI_NAME_MAX_LENGTH)
+        {
+            /*
+             * Name ist voll: das letzte Zeichen direkt editierbar
+             * machen, weil dahinter kein Platz mehr ist.
+             */
+            uiNameLength--;
+            uiNameCandidate =
+                UI_NameAlphabetIndex(uiNameBuffer[uiNameLength]);
+            uiNameBuffer[uiNameLength] = '\0';
+        }
+    }
+
     uiNameEditing = 1U;
     uiSaveStatus = UI_SAVE_STATUS_NAME_HINT;
 
