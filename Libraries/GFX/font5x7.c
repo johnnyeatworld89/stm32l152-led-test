@@ -139,6 +139,38 @@ static const uint8_t *Font5x7_GetBitmap(char c)
  * Draw Character
  * ============================================================
  */
+
+/*
+ * Prueft, ob die Spalte exakt den Pixel-Lauf start..end-1 enthaelt
+ * (davor und dahinter nicht gesetzt).
+ */
+static uint8_t Font5x7_ColumnHasRun(
+    uint8_t columnData,
+    uint8_t start,
+    uint8_t end)
+{
+    uint8_t runMask =
+        (uint8_t)(((1U << end) - 1U) & ~((1U << start) - 1U));
+
+    if ((columnData & runMask) != runMask)
+    {
+        return 0;
+    }
+
+    if (start > 0 && (columnData & (1U << (start - 1U))))
+    {
+        return 0;
+    }
+
+    if (end < 7 && (columnData & (1U << end)))
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+
 void Font5x7_DrawChar(
     uint16_t x,
     uint16_t y,
@@ -151,6 +183,7 @@ void Font5x7_DrawChar(
     {
         scale = 1;
     }
+
 
     /*
      * Space
@@ -167,7 +200,9 @@ void Font5x7_DrawChar(
         return;
     }
 
+
     const uint8_t *bitmap = Font5x7_GetBitmap(c);
+
 
     /*
      * Nicht unterstütztes Zeichen.
@@ -191,36 +226,82 @@ void Font5x7_DrawChar(
         return;
     }
 
+
     /*
      * Zeichen zeichnen.
+     *
+     * Jeder ST7735_FillRect-Aufruf kostet mehrere SPI-Zugriffe.
+     * Deshalb wird nicht jedes Pixel einzeln gesetzt:
+     *
+     *   1. Hintergrund des ganzen Zeichens in einem Aufruf.
+     *   2. Gesetzte Pixel als moeglichst grosse Rechtecke:
+     *      senkrechte Laeufe, die in benachbarten Spalten
+     *      identisch sind, werden zu einem Rechteck vereint.
      */
+    ST7735_FillRect(
+        x,
+        y,
+        5 * scale,
+        7 * scale,
+        bg);
+
+    uint8_t consumed[5] = {0, 0, 0, 0, 0};
+
     for (uint8_t column = 0;
          column < 5;
          column++)
     {
-        uint8_t columnData = bitmap[column];
+        uint8_t columnData = bitmap[column] & 0x7F;
+        uint8_t row = 0;
 
-        for (uint8_t row = 0;
-             row < 7;
-             row++)
+        while (row < 7)
         {
-            uint16_t color;
-
-            if (columnData & (1 << row))
+            if (!(columnData & (1U << row)))
             {
-                color = fg;
+                row++;
+                continue;
             }
-            else
+
+            uint8_t start = row;
+
+            while (row < 7 &&
+                   (columnData & (1U << row)))
             {
-                color = bg;
+                row++;
+            }
+
+            uint8_t end = row;
+
+            uint8_t runMask =
+                (uint8_t)(((1U << end) - 1U) &
+                          ~((1U << start) - 1U));
+
+            /*
+             * Schon als Teil eines breiteren Rechtecks gezeichnet.
+             */
+            if (consumed[column] & runMask)
+            {
+                continue;
+            }
+
+            uint8_t width = 1;
+
+            while (column + width < 5 &&
+                   Font5x7_ColumnHasRun(
+                       bitmap[column + width] & 0x7F,
+                       start,
+                       end))
+            {
+                consumed[column + width] |= runMask;
+                width++;
             }
 
             ST7735_FillRect(
                 x + column * scale,
-                y + row * scale,
-                scale,
-                scale,
-                color);
+                y + start * scale,
+                width * scale,
+                (end - start) * scale,
+                fg);
         }
     }
 }
