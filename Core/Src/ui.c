@@ -713,7 +713,9 @@ typedef enum
     UI_MENU_PAGE_DELETE_CONFIRM,
     UI_MENU_PAGE_GENERAL,
     UI_MENU_PAGE_SAVE_PRESET,
-    UI_MENU_PAGE_SAVE_NAME
+    UI_MENU_PAGE_SAVE_NAME,
+    UI_MENU_PAGE_MANAGE_PRESETS,
+    UI_MENU_PAGE_MANAGE_ACTIONS
 
 } UI_MenuPage;
 
@@ -771,7 +773,12 @@ typedef enum
     UI_SAVE_STATUS_SAVED,
     UI_SAVE_STATUS_MEMORY_FULL,
     UI_SAVE_STATUS_ERROR,
-    UI_SAVE_STATUS_NAME_HINT
+    UI_SAVE_STATUS_NAME_HINT,
+    UI_SAVE_STATUS_RENAMED,
+    UI_SAVE_STATUS_DELETED,
+    UI_SAVE_STATUS_EMPTY_SLOT,
+    UI_SAVE_STATUS_LOAD_FAILED,
+    UI_SAVE_STATUS_DELETE_CONFIRM
 
 } UI_SaveStatus;
 
@@ -796,8 +803,9 @@ static UI_SaveStatus uiSaveStatus = UI_SAVE_STATUS_NONE;
  * Slots: 0 = Bank-Zeile, 1 bis 8 = sichtbare Preset-Zeilen,
  *        9 = Statuszeile.
  */
-#define UI_SAVE_SHADOW_SLOTS          10U
+#define UI_SAVE_SHADOW_SLOTS          11U
 #define UI_SAVE_SHADOW_STATUS_SLOT     9U
+#define UI_SAVE_SHADOW_RENAME_SLOT    10U
 
 static char uiSaveShadowText[UI_SAVE_SHADOW_SLOTS][UI_SAVE_TEXT_CAPACITY];
 static uint16_t uiSaveShadowFg[UI_SAVE_SHADOW_SLOTS];
@@ -849,6 +857,63 @@ static char uiNameOriginal[PRESET_NAME_LENGTH];
 /* Gerade ausgewaehltes Zeichen (Index in uiNameAlphabet), -1 = keines. */
 static int8_t uiNameCandidate = -1;
 static uint8_t uiNameEditing = 0U;
+
+/*
+ * Das Untermenue wird fuer drei Aufgaben benutzt:
+ *   - Preset speichern (Layout und Name)
+ *   - Preset umbenennen (nur der Name)
+ *   - Bank umbenennen (die Banknummer steht fest davor)
+ */
+typedef enum
+{
+    UI_NAME_MODE_SAVE_PRESET = 0,
+    UI_NAME_MODE_RENAME_PRESET,
+    UI_NAME_MODE_RENAME_BANK
+
+} UI_NameMode;
+
+static UI_NameMode uiNameMode = UI_NAME_MODE_SAVE_PRESET;
+
+/* Seite, auf die Cancel und Return zurueckfuehren. */
+static UI_MenuPage uiNameCancelPage = UI_MENU_PAGE_SAVE_PRESET;
+
+/* Feststehender Text vor dem Namen, z.B. "3 " bei der Bank. */
+static char uiNamePrefix[6] = "";
+
+
+/* -------------------------------------------------------------------------- */
+/* Manage Presets: Konstanten und Zustand                                     */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Die Liste sieht aus wie bei Save Preset, hat aber oben eine zusaetzliche
+ * Zeile "Rename bank". Dadurch bleiben 7 Zeilen fuer die Presets:
+ *
+ *   y   2 ..  13   "Rename bank"
+ *   y  14 ..  25   Bank-Zeile
+ *   y  28 .. 111   7 sichtbare Preset-Zeilen (scrollen)
+ */
+#define UI_MANAGE_RENAME_Y             2U
+#define UI_MANAGE_BANK_Y              14U
+#define UI_MANAGE_LIST_Y              28U
+#define UI_MANAGE_VISIBLE_PRESETS      7U
+
+/* Aktionen nach einem Klick auf ein Preset. */
+#define UI_ACTION_LOAD                 0U
+#define UI_ACTION_RENAME               1U
+#define UI_ACTION_DELETE               2U
+#define UI_ACTION_COUNT                3U
+
+static const char *const uiActionLabels[UI_ACTION_COUNT] =
+{
+    "Load",
+    "Rename",
+    "Delete"
+};
+
+static uint8_t uiActionsSlot = 0U;
+static uint8_t uiActionsRow = UI_ACTION_LOAD;
+static uint8_t uiActionsDeletePending = 0U;
 
 static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
@@ -4344,19 +4409,78 @@ static uint8_t UI_SaveAppendUInt2(
 }
 
 
+/* -------------------------------------------------------------------------- */
+/* Preset-Liste: Geometrie (Save Preset und Manage Presets)                   */
+/* -------------------------------------------------------------------------- */
+
+/* Die Manage-Seite hat zusaetzlich die Zeile "Rename bank" ganz oben. */
+static uint8_t UI_ListIsManage(void)
+{
+    return (uiMenuPage == UI_MENU_PAGE_MANAGE_PRESETS) ? 1U : 0U;
+}
+
+
+/* Zeilennummer der Bank-Zeile: 0 bei Save, 1 bei Manage. */
+static uint8_t UI_ListBankRow(void)
+{
+    return UI_ListIsManage() ? 1U : 0U;
+}
+
+
+/* Zeilennummer der letzten Preset-Zeile. */
+static int16_t UI_ListLastRow(void)
+{
+    return (int16_t)(UI_ListBankRow() + PRESET_SLOTS_PER_BANK);
+}
+
+
+static uint8_t UI_ListVisiblePresets(void)
+{
+    return UI_ListIsManage() ?
+           UI_MANAGE_VISIBLE_PRESETS :
+           UI_SAVE_VISIBLE_PRESETS;
+}
+
+
+static uint16_t UI_ListFirstY(void)
+{
+    return UI_ListIsManage() ?
+           UI_MANAGE_LIST_Y :
+           UI_SAVE_LIST_Y;
+}
+
+
+static uint16_t UI_ListBankY(void)
+{
+    return UI_ListIsManage() ?
+           UI_MANAGE_BANK_Y :
+           UI_SAVE_HEADER_Y;
+}
+
+
 /*
- * Zeile 0:  "<bank> <bankname>"      z.B. "3 bank 3"
- * Zeile n:  "<nn>: <name>"           z.B. "05: empty"
+ * Manage-Seite, Zeile 0:  "Rename bank"
+ * Bank-Zeile:             "<bank> <bankname>"      z.B. "3 bank 3"
+ * Preset-Zeile:           "<nn>: <name>"           z.B. "05: empty"
  */
 static void UI_SaveBuildRowText(
     uint8_t row,
     char *text)
 {
     uint8_t position = 0U;
+    uint8_t bankRow = UI_ListBankRow();
 
     text[0] = '\0';
 
-    if (row == 0U)
+    if (UI_ListIsManage() && row == 0U)
+    {
+        UI_SaveAppendText(
+            text, 0U, UI_SAVE_TEXT_CAPACITY, "Rename bank");
+
+        return;
+    }
+
+    if (row == bankRow)
     {
         char bankName[PRESET_BANK_NAME_LENGTH];
 
@@ -4372,13 +4496,14 @@ static void UI_SaveBuildRowText(
         return;
     }
 
+    uint8_t number = (uint8_t)(row - bankRow);
     char presetName[PRESET_NAME_LENGTH];
 
     uint8_t used = PresetStore_GetSlotName(
-        uiPresetBank, (uint8_t)(row - 1U), presetName);
+        uiPresetBank, (uint8_t)(number - 1U), presetName);
 
     position = UI_SaveAppendUInt2(
-        text, position, UI_SAVE_TEXT_CAPACITY, row);
+        text, position, UI_SAVE_TEXT_CAPACITY, number);
     position = UI_SaveAppendText(
         text, position, UI_SAVE_TEXT_CAPACITY, ": ");
     UI_SaveAppendText(
@@ -4529,24 +4654,31 @@ static void UI_SaveDrawRow(uint8_t row)
 {
     uint16_t y;
     uint8_t slot;
+    uint8_t bankRow = UI_ListBankRow();
 
-    if (row == 0U)
+    if (UI_ListIsManage() && row == 0U)
     {
-        y = UI_SAVE_HEADER_Y;
+        y = UI_MANAGE_RENAME_Y;
+        slot = UI_SAVE_SHADOW_RENAME_SLOT;
+    }
+    else if (row == bankRow)
+    {
+        y = UI_ListBankY();
         slot = 0U;
     }
     else
     {
         int16_t position =
-            (int16_t)(row - 1U) - (int16_t)uiPresetScrollTop;
+            (int16_t)row - (int16_t)bankRow - 1 -
+            (int16_t)uiPresetScrollTop;
 
         if (position < 0 ||
-            position >= (int16_t)UI_SAVE_VISIBLE_PRESETS)
+            position >= (int16_t)UI_ListVisiblePresets())
         {
             return;
         }
 
-        y = (uint16_t)(UI_SAVE_LIST_Y +
+        y = (uint16_t)(UI_ListFirstY() +
             ((uint16_t)position * UI_SAVE_ROW_HEIGHT));
         slot = (uint8_t)(position + 1);
     }
@@ -4556,7 +4688,7 @@ static void UI_SaveDrawRow(uint8_t row)
     if ((int16_t)row == uiMenuSelectedRow)
     {
         background =
-            (row == 0U && uiPresetBankEditing) ?
+            (row == bankRow && uiPresetBankEditing) ?
             UI_COLOR_BORDER_GRABBED :
             UI_COLOR_BORDER_SELECTED;
     }
@@ -4580,21 +4712,23 @@ static void UI_SaveDrawRow(uint8_t row)
 
 static void UI_SaveDrawScrollbar(void)
 {
+    uint16_t visible = UI_ListVisiblePresets();
+
     uint16_t trackHeight =
-        UI_SAVE_VISIBLE_PRESETS * UI_SAVE_ROW_HEIGHT;
+        (uint16_t)(visible * UI_SAVE_ROW_HEIGHT);
 
     uint16_t thumbHeight =
-        (uint16_t)((trackHeight * UI_SAVE_VISIBLE_PRESETS) /
+        (uint16_t)((trackHeight * visible) /
                    PRESET_SLOTS_PER_BANK);
 
     uint16_t thumbY =
-        (uint16_t)(UI_SAVE_LIST_Y +
+        (uint16_t)(UI_ListFirstY() +
             (((uint32_t)trackHeight * uiPresetScrollTop) /
              PRESET_SLOTS_PER_BANK));
 
     ST7735_FillRect(
         UI_SAVE_SCROLLBAR_X,
-        UI_SAVE_LIST_Y,
+        UI_ListFirstY(),
         UI_SAVE_SCROLLBAR_WIDTH,
         trackHeight,
         UI_SAVE_COLOR_TRACK
@@ -4612,10 +4746,12 @@ static void UI_SaveDrawScrollbar(void)
 
 static void UI_SaveDrawList(void)
 {
-    for (uint8_t i = 0U; i < UI_SAVE_VISIBLE_PRESETS; i++)
+    uint8_t firstRow = (uint8_t)(UI_ListBankRow() + 1U);
+
+    for (uint8_t i = 0U; i < UI_ListVisiblePresets(); i++)
     {
         UI_SaveDrawRow(
-            (uint8_t)(uiPresetScrollTop + i + 1U));
+            (uint8_t)(firstRow + uiPresetScrollTop + i));
     }
 
     UI_SaveDrawScrollbar();
@@ -4623,8 +4759,27 @@ static void UI_SaveDrawList(void)
 
 
 /*
- * Statuszeile unter der Trennlinie. Wird von der Preset-Liste und vom
- * Untermenue gemeinsam benutzt.
+ * Haengt "<n>/<max>" (belegte von maximal moeglichen Presets) an.
+ */
+static uint8_t UI_SaveAppendUsedCount(
+    char *text,
+    uint8_t position)
+{
+    position = UI_SaveAppendUInt(
+        text, position, UI_SAVE_TEXT_CAPACITY,
+        PresetStore_GetUsedCount());
+    position = UI_SaveAppendText(
+        text, position, UI_SAVE_TEXT_CAPACITY, "/");
+
+    return UI_SaveAppendUInt(
+        text, position, UI_SAVE_TEXT_CAPACITY,
+        PRESET_MAX_RECORDS);
+}
+
+
+/*
+ * Statuszeile unter der Trennlinie. Wird von allen Seiten dieses
+ * Bereichs gemeinsam benutzt.
  */
 static void UI_SaveDrawStatus(void)
 {
@@ -4645,20 +4800,13 @@ static void UI_SaveDrawStatus(void)
             color = UI_COLOR_LOOP_UNCONFIRMED;
             position = UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY, "Memory full ");
-            position = UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY,
-                PresetStore_GetUsedCount());
-            position = UI_SaveAppendText(
-                text, position, UI_SAVE_TEXT_CAPACITY, "/");
-            UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY,
-                PRESET_MAX_RECORDS);
+            UI_SaveAppendUsedCount(text, position);
             break;
 
         case UI_SAVE_STATUS_ERROR:
             color = UI_COLOR_LOOP_UNCONFIRMED;
             UI_SaveAppendText(
-                text, 0U, UI_SAVE_TEXT_CAPACITY, "Save failed");
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Write failed");
             break;
 
         case UI_SAVE_STATUS_NAME_HINT:
@@ -4667,31 +4815,47 @@ static void UI_SaveDrawStatus(void)
                 "Enter set  Return del");
             break;
 
+        case UI_SAVE_STATUS_RENAMED:
+            UI_SaveAppendText(
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Renamed");
+            break;
+
+        case UI_SAVE_STATUS_EMPTY_SLOT:
+            color = UI_COLOR_LOOP_UNCONFIRMED;
+            UI_SaveAppendText(
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Preset is empty");
+            break;
+
+        case UI_SAVE_STATUS_LOAD_FAILED:
+            color = UI_COLOR_LOOP_UNCONFIRMED;
+            UI_SaveAppendText(
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Load failed");
+            break;
+
+        case UI_SAVE_STATUS_DELETE_CONFIRM:
+            color = UI_COLOR_LOOP_UNCONFIRMED;
+            UI_SaveAppendText(
+                text, 0U, UI_SAVE_TEXT_CAPACITY,
+                "Sure? Enter:yes Return:no");
+            break;
+
         case UI_SAVE_STATUS_SAVED:
             position = UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY, "Saved - Used ");
-            position = UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY,
-                PresetStore_GetUsedCount());
+            UI_SaveAppendUsedCount(text, position);
+            break;
+
+        case UI_SAVE_STATUS_DELETED:
             position = UI_SaveAppendText(
-                text, position, UI_SAVE_TEXT_CAPACITY, "/");
-            UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY,
-                PRESET_MAX_RECORDS);
+                text, 0U, UI_SAVE_TEXT_CAPACITY, "Deleted - Used ");
+            UI_SaveAppendUsedCount(text, position);
             break;
 
         case UI_SAVE_STATUS_NONE:
         default:
             position = UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY, "Used ");
-            position = UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY,
-                PresetStore_GetUsedCount());
-            position = UI_SaveAppendText(
-                text, position, UI_SAVE_TEXT_CAPACITY, "/");
-            UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY,
-                PRESET_MAX_RECORDS);
+            UI_SaveAppendUsedCount(text, position);
             break;
     }
 
@@ -4721,7 +4885,12 @@ static void UI_SaveDrawPage(void)
 
     UI_SaveShadowInvalidate();
 
-    UI_SaveDrawRow(0U);
+    if (UI_ListIsManage())
+    {
+        UI_SaveDrawRow(0U);
+    }
+
+    UI_SaveDrawRow(UI_ListBankRow());
     UI_SaveDrawList();
 
     ST7735_DrawLine(
@@ -4784,6 +4953,130 @@ static uint8_t UI_PresetSerializeLayout(
     buffer[0] = count;
 
     return position;
+}
+
+
+/*
+ * Gegenstueck zu UI_PresetSerializeLayout: stellt die Positionen der
+ * Items aus dem Puffer wieder her und baut Auto-Nodes und Verbindungen
+ * neu auf.
+ *
+ * Der Puffer wird vollstaendig geprueft, bevor etwas geaendert wird.
+ * Bei einem Fehler bleibt das aktuelle Layout unveraendert.
+ *
+ * Nicht im Puffer enthaltene Items werden inaktiv. Der Status der Loops
+ * ist noch nicht Teil des Presets und bleibt unveraendert.
+ *
+ * Rueckgabe: 1 bei Erfolg, 0 bei ungueltigem Puffer.
+ */
+static uint8_t UI_PresetApplyLayout(
+    const uint8_t *layout,
+    uint8_t length)
+{
+    uint8_t seen[UI_ITEM_COUNT];
+    int8_t newOrder[UI_ITEM_COUNT];
+    int8_t newLane[UI_ITEM_COUNT];
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        seen[i] = 0U;
+        newOrder[i] = 0;
+        newLane[i] = 0;
+    }
+
+    if (length < 1U)
+    {
+        return 0U;
+    }
+
+    uint8_t count = layout[0];
+
+    if ((uint16_t)(1U + (3U * count)) > length)
+    {
+        return 0U;
+    }
+
+    /*
+     * Pruefen.
+     */
+    for (uint8_t entry = 0U; entry < count; entry++)
+    {
+        uint8_t base = (uint8_t)(1U + (3U * entry));
+        int16_t itemIndex = UI_FindItemIndexById(layout[base]);
+        int8_t order = (int8_t)layout[base + 1U];
+        int8_t lane = (int8_t)layout[base + 2U];
+
+        if (itemIndex < 0 ||
+            uiItems[itemIndex].type == UI_ITEM_AUTO_NODE ||
+            seen[itemIndex] ||
+            order < 0 ||
+            order >= UI_MAX_ORDER_COUNT)
+        {
+            return 0U;
+        }
+
+        seen[itemIndex] = 1U;
+        newOrder[itemIndex] = order;
+        newLane[itemIndex] = lane;
+    }
+
+    /*
+     * Ein- und Ausgaenge muessen immer vorhanden sein.
+     */
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if ((uiItems[i].type == UI_ITEM_INPUT ||
+             uiItems[i].type == UI_ITEM_OUTPUT) &&
+            !seen[i])
+        {
+            return 0U;
+        }
+    }
+
+    /*
+     * Uebernehmen.
+     */
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type == UI_ITEM_AUTO_NODE)
+        {
+            continue;
+        }
+
+        uiItems[i].focus = UI_FOCUS_NONE;
+
+        if (seen[i])
+        {
+            uiItems[i].order = newOrder[i];
+            uiItems[i].lane = newLane[i];
+        }
+        else
+        {
+            uiItems[i].order = UI_INACTIVE_ORDER;
+            uiItems[i].lane = 0;
+            uiItems[i].loopStatus = UI_LOOP_STATUS_OFF;
+        }
+    }
+
+    grabStartStateValid = 0U;
+
+    UI_RemoveAllAutoNodes();
+    UI_NormalizeOrders();
+    UI_EnsureEdgeColumns();
+
+    if (!UI_RebuildCalculatedConnections())
+    {
+        UI_ClearConnections();
+    }
+
+    int16_t selectedIndex = UI_FindFirstSelectableIndex();
+
+    if (selectedIndex >= 0)
+    {
+        UI_MenuSetConfirmedItem(selectedIndex);
+    }
+
+    return 1U;
 }
 
 
@@ -4907,15 +5200,67 @@ static int8_t UI_NameAlphabetIndex(char c)
 
 
 /*
+ * Kopfzeile der Untermenues:
+ *   Preset:  "Bank n Preset nn"
+ *   Bank:    "Rename bank n"
+ */
+static void UI_SaveBuildHeader(
+    char *header,
+    uint8_t bankMode,
+    uint8_t slot)
+{
+    uint8_t position;
+
+    if (bankMode)
+    {
+        position = UI_SaveAppendText(
+            header, 0U, UI_SAVE_TEXT_CAPACITY, "Rename bank ");
+        UI_SaveAppendUInt(
+            header, position, UI_SAVE_TEXT_CAPACITY, uiPresetBank);
+
+        return;
+    }
+
+    position = UI_SaveAppendText(
+        header, 0U, UI_SAVE_TEXT_CAPACITY, "Bank ");
+    position = UI_SaveAppendUInt(
+        header, position, UI_SAVE_TEXT_CAPACITY, uiPresetBank);
+    position = UI_SaveAppendText(
+        header, position, UI_SAVE_TEXT_CAPACITY, " Preset ");
+    UI_SaveAppendUInt2(
+        header, position, UI_SAVE_TEXT_CAPACITY,
+        (uint8_t)(slot + 1U));
+}
+
+
+static uint8_t UI_NamePrefixLength(void)
+{
+    uint8_t length = 0U;
+
+    while (uiNamePrefix[length] != '\0' &&
+           length < (sizeof(uiNamePrefix) - 1U))
+    {
+        length++;
+    }
+
+    return length;
+}
+
+
+/*
  * X-Position des Zeichens, das hinter den bereits gesetzten Zeichen
  * folgt. Die Breite wird mit der Schrift gemessen: Breite von
- * "<gesetzt>A" minus Breite von "A".
+ * "<gesetzt>A" minus Breite von "A". Ein feststehender Praefix (die
+ * Banknummer) wird davor mitgerechnet.
  */
 static uint16_t UI_NameNextCharX(void)
 {
+    uint16_t base = (uint16_t)(UI_SAVE_TEXT_X_OFFSET +
+                               (6U * UI_NamePrefixLength()));
+
     if (uiNameLength == 0U)
     {
-        return UI_SAVE_TEXT_X_OFFSET;
+        return base;
     }
 
     char text[PRESET_NAME_LENGTH + 1U];
@@ -4934,8 +5279,7 @@ static uint16_t UI_NameNextCharX(void)
     uint16_t fullWidth = Font5x7_GetStringWidth(text, 1U);
     uint16_t singleWidth = Font5x7_GetStringWidth(single, 1U);
 
-    return (uint16_t)(UI_SAVE_TEXT_X_OFFSET +
-                      fullWidth - singleWidth);
+    return (uint16_t)(base + fullWidth - singleWidth);
 }
 
 
@@ -4978,8 +5322,18 @@ static void UI_NameDrawRow(uint8_t row)
         return;
     }
 
+    /*
+     * Namenszeile: feststehender Praefix und Name.
+     */
+    char line[PRESET_NAME_LENGTH + 6U];
+
+    uint8_t position = UI_SaveAppendText(
+        line, 0U, sizeof(line), uiNamePrefix);
+    UI_SaveAppendText(
+        line, position, sizeof(line), uiNameBuffer);
+
     Font5x7_DrawString(
-        UI_SAVE_TEXT_X_OFFSET, textY, uiNameBuffer,
+        UI_SAVE_TEXT_X_OFFSET, textY, line,
         UI_COLOR_TEXT_LIGHT, background, 1U);
 
     if (!uiNameEditing ||
@@ -5020,7 +5374,6 @@ static void UI_NameDrawRow(uint8_t row)
 static void UI_NameDrawPage(void)
 {
     char header[UI_SAVE_TEXT_CAPACITY];
-    uint8_t position = 0U;
 
     ST7735_FillRect(
         0U,
@@ -5032,15 +5385,10 @@ static void UI_NameDrawPage(void)
 
     UI_SaveShadowInvalidate();
 
-    position = UI_SaveAppendText(
-        header, 0U, UI_SAVE_TEXT_CAPACITY, "Bank ");
-    position = UI_SaveAppendUInt(
-        header, position, UI_SAVE_TEXT_CAPACITY, uiPresetBank);
-    position = UI_SaveAppendText(
-        header, position, UI_SAVE_TEXT_CAPACITY, " Preset ");
-    UI_SaveAppendUInt2(
-        header, position, UI_SAVE_TEXT_CAPACITY,
-        (uint8_t)(uiNameSlot + 1U));
+    UI_SaveBuildHeader(
+        header,
+        (uiNameMode == UI_NAME_MODE_RENAME_BANK) ? 1U : 0U,
+        uiNameSlot);
 
     Font5x7_DrawString(
         UI_SAVE_TEXT_X_OFFSET,
@@ -5068,12 +5416,29 @@ static void UI_NameDrawPage(void)
 }
 
 
-/* Namensvorschlag fuer einen Slot: "preset nn". */
+/*
+ * Namensvorschlag:
+ *   Preset:  "preset nn"   (nn = Slotnummer)
+ *   Bank:    "bank n"      (Standardname der Bank)
+ */
 static void UI_NameBuildSuggestion(
     uint8_t slot,
     char *name)
 {
-    uint8_t position = UI_SaveAppendText(
+    uint8_t position;
+
+    if (uiNameMode == UI_NAME_MODE_RENAME_BANK)
+    {
+        position = UI_SaveAppendText(
+            name, 0U, PRESET_NAME_LENGTH, "bank ");
+
+        UI_SaveAppendUInt(
+            name, position, PRESET_NAME_LENGTH, uiPresetBank);
+
+        return;
+    }
+
+    position = UI_SaveAppendText(
         name, 0U, PRESET_NAME_LENGTH, "preset ");
 
     UI_SaveAppendUInt2(
@@ -5082,20 +5447,42 @@ static void UI_NameBuildSuggestion(
 
 
 /*
- * Oeffnet das Untermenue fuer einen Slot. Der Name ist bei einem
- * belegten Preset der vorhandene, bei einem leeren der Vorschlag
- * "preset nn". Der Cursor steht auf "Save".
+ * Oeffnet das Untermenue.
+ *
+ * Der Name ist bei einem belegten Preset der vorhandene, bei einem
+ * leeren der Vorschlag "preset nn". Bei der Bank ist es der aktuelle
+ * Banknamen, davor steht fest die Banknummer. Der Cursor steht auf
+ * "Save".
+ *
+ * cancelPage ist die Seite, zu der Cancel und Return zurueckfuehren.
  */
-static void UI_NameOpen(uint8_t slot)
+static void UI_NameOpen(
+    UI_NameMode mode,
+    uint8_t slot,
+    UI_MenuPage cancelPage)
 {
     char name[PRESET_NAME_LENGTH];
 
-    if (!PresetStore_GetSlotName(uiPresetBank, slot, name))
+    uiNameMode = mode;
+    uiNameCancelPage = cancelPage;
+    uiNameSlot = slot;
+    uiNamePrefix[0] = '\0';
+
+    if (mode == UI_NAME_MODE_RENAME_BANK)
+    {
+        uint8_t position = UI_SaveAppendUInt(
+            uiNamePrefix, 0U, sizeof(uiNamePrefix), uiPresetBank);
+
+        UI_SaveAppendText(
+            uiNamePrefix, position, sizeof(uiNamePrefix), " ");
+
+        PresetStore_GetBankName(uiPresetBank, name);
+    }
+    else if (!PresetStore_GetSlotName(uiPresetBank, slot, name))
     {
         UI_NameBuildSuggestion(slot, name);
     }
 
-    uiNameSlot = slot;
     UI_NameCopy(uiNameBuffer, name);
     UI_NameCopy(uiNameOriginal, name);
     uiNameLength = UI_NameLengthOf(uiNameBuffer);
@@ -5110,12 +5497,16 @@ static void UI_NameOpen(uint8_t slot)
 }
 
 
-static void UI_NameBackToList(void)
+/*
+ * Cancel und Return: zurueck zur Seite, von der das Untermenue
+ * geoeffnet wurde.
+ */
+static void UI_NameCancel(void)
 {
     uiNameEditing = 0U;
     uiSaveStatus = UI_SAVE_STATUS_NONE;
-    uiMenuPage = UI_MENU_PAGE_SAVE_PRESET;
-    UI_SaveDrawPage();
+    uiMenuPage = uiNameCancelPage;
+    UI_DrawMenu();
 }
 
 
@@ -5259,6 +5650,61 @@ static void UI_NameHandleEncoder(int8_t direction)
 }
 
 
+/*
+ * "Save" im Untermenue.
+ *
+ *   Preset speichern:  Layout und Name
+ *   Preset umbenennen: nur der Name
+ *   Bank umbenennen:   Bankname (der Standardname stellt den
+ *                      Standard wieder her)
+ *
+ * Danach geht es zurueck zur Liste, die das Ergebnis in der
+ * Statuszeile zeigt.
+ */
+static void UI_NameCommit(void)
+{
+    if (uiNameMode == UI_NAME_MODE_SAVE_PRESET)
+    {
+        UI_SaveExecute(uiNameSlot, uiNameBuffer);
+        return;
+    }
+
+    /*
+     * Das Schreiben blockiert, deshalb vorher anzeigen.
+     */
+    uiSaveStatus = UI_SAVE_STATUS_SAVING;
+    UI_SaveDrawStatus();
+
+    PresetStoreStatus result;
+
+    if (uiNameMode == UI_NAME_MODE_RENAME_PRESET)
+    {
+        result = PresetStore_SetPresetName(
+            uiPresetBank, uiNameSlot, uiNameBuffer);
+    }
+    else
+    {
+        char defaultName[PRESET_NAME_LENGTH];
+
+        UI_NameBuildSuggestion(uiNameSlot, defaultName);
+
+        result = PresetStore_SetBankName(
+            uiPresetBank,
+            UI_NameEquals(uiNameBuffer, defaultName) ?
+                "" : uiNameBuffer);
+    }
+
+    uiSaveStatus =
+        (result == PRESET_STORE_OK) ?
+        UI_SAVE_STATUS_RENAMED :
+        UI_SAVE_STATUS_ERROR;
+
+    uiNameEditing = 0U;
+    uiMenuPage = UI_MENU_PAGE_MANAGE_PRESETS;
+    UI_DrawMenu();
+}
+
+
 static void UI_NameHandleEnter(void)
 {
     if (uiNameEditing)
@@ -5296,11 +5742,11 @@ static void UI_NameHandleEnter(void)
     }
     else if (uiNameRow == UI_NAME_ROW_SAVE)
     {
-        UI_SaveExecute(uiNameSlot, uiNameBuffer);
+        UI_NameCommit();
     }
     else
     {
-        UI_NameBackToList();
+        UI_NameCancel();
     }
 }
 
@@ -5309,7 +5755,7 @@ static void UI_NameHandleReturn(void)
 {
     if (!uiNameEditing)
     {
-        UI_NameBackToList();
+        UI_NameCancel();
         return;
     }
 
@@ -5350,24 +5796,275 @@ static void UI_NameHandleReturn(void)
 /* Save Preset: Bedienung der Preset-Liste                                    */
 /* -------------------------------------------------------------------------- */
 
-static void UI_SaveEnsureSelectionVisible(void)
+/* -------------------------------------------------------------------------- */
+/* Manage Presets: Aktionsmenue (Load / Rename / Delete)                      */
+/* -------------------------------------------------------------------------- */
+
+static void UI_ActionsDrawRow(uint8_t row)
 {
-    if (uiMenuSelectedRow <= 0)
+    uint16_t y = (uint16_t)(UI_NAME_FIRST_ROW_Y +
+                 ((uint16_t)row * UI_NAME_ROW_PITCH));
+
+    uint16_t background =
+        (row == uiActionsRow) ?
+        UI_COLOR_BORDER_SELECTED :
+        UI_COLOR_BACKGROUND;
+
+    uint16_t color =
+        (row == UI_ACTION_DELETE && uiActionsDeletePending) ?
+        UI_COLOR_LOOP_UNCONFIRMED :
+        UI_COLOR_TEXT_LIGHT;
+
+    ST7735_FillRect(
+        0U,
+        y,
+        UI_SAVE_ROW_WIDTH,
+        UI_NAME_ROW_HEIGHT,
+        background
+    );
+
+    Font5x7_DrawString(
+        UI_SAVE_TEXT_X_OFFSET,
+        y + UI_NAME_TEXT_Y_OFFSET,
+        uiActionLabels[row],
+        color,
+        background,
+        1U
+    );
+}
+
+
+static void UI_ActionsDrawPage(void)
+{
+    char header[UI_SAVE_TEXT_CAPACITY];
+
+    ST7735_FillRect(
+        0U,
+        0U,
+        UI_DISPLAY_WIDTH,
+        UI_DISPLAY_HEIGHT,
+        UI_COLOR_BACKGROUND
+    );
+
+    UI_SaveShadowInvalidate();
+
+    UI_SaveBuildHeader(header, 0U, uiActionsSlot);
+
+    Font5x7_DrawString(
+        UI_SAVE_TEXT_X_OFFSET,
+        UI_SAVE_HEADER_Y,
+        header,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1U
+    );
+
+    for (uint8_t row = 0U; row < UI_ACTION_COUNT; row++)
+    {
+        UI_ActionsDrawRow(row);
+    }
+
+    ST7735_DrawLine(
+        0U,
+        UI_SAVE_SEPARATOR_Y,
+        UI_DISPLAY_WIDTH - 1U,
+        UI_SAVE_SEPARATOR_Y,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    UI_SaveDrawStatus();
+}
+
+
+/* Oeffnet das Aktionsmenue fuer ein belegtes Preset. Cursor auf "Load". */
+static void UI_ActionsOpen(uint8_t slot)
+{
+    uiActionsSlot = slot;
+    uiActionsRow = UI_ACTION_LOAD;
+    uiActionsDeletePending = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+    uiMenuPage = UI_MENU_PAGE_MANAGE_ACTIONS;
+    UI_DrawMenu();
+}
+
+
+/* Zurueck zur Preset-Liste der Manage-Seite. */
+static void UI_ActionsBack(void)
+{
+    uiActionsDeletePending = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+    uiMenuPage = UI_MENU_PAGE_MANAGE_PRESETS;
+    UI_DrawMenu();
+}
+
+
+/*
+ * Load: stellt das gespeicherte Layout her und verlaesst das Menue.
+ * Bei einem Fehler bleibt das aktuelle Layout unveraendert und die
+ * Meldung erscheint in der Statuszeile.
+ */
+static void UI_ActionLoad(void)
+{
+    uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
+    uint8_t length = 0U;
+
+    if (PresetStore_ReadLayout(
+            uiPresetBank, uiActionsSlot, layout, &length) !=
+            PRESET_STORE_OK ||
+        !UI_PresetApplyLayout(layout, length))
+    {
+        uiSaveStatus = UI_SAVE_STATUS_LOAD_FAILED;
+        UI_SaveDrawStatus();
+        return;
+    }
+
+    uiActionsDeletePending = 0U;
+    uiMenuControlMode = UI_MENU_CONTROL_NAVIGATION;
+    uiMenuPage = UI_MENU_PAGE_ROOT;
+    uiMode = UI_MODE_STATE_VIEW;
+
+    UI_Draw();
+}
+
+
+static void UI_ActionDelete(void)
+{
+    PresetStoreStatus result =
+        PresetStore_DeletePreset(uiPresetBank, uiActionsSlot);
+
+    uiActionsDeletePending = 0U;
+
+    uiSaveStatus =
+        (result == PRESET_STORE_OK) ?
+        UI_SAVE_STATUS_DELETED :
+        UI_SAVE_STATUS_ERROR;
+
+    uiMenuPage = UI_MENU_PAGE_MANAGE_PRESETS;
+    UI_DrawMenu();
+}
+
+
+/* Eine offene Loeschen-Rueckfrage zuruecknehmen. */
+static void UI_ActionsCancelDelete(void)
+{
+    uiActionsDeletePending = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+    UI_ActionsDrawRow(UI_ACTION_DELETE);
+    UI_SaveDrawStatus();
+}
+
+
+static void UI_ActionsHandleEncoder(int8_t direction)
+{
+    if (direction == 0)
     {
         return;
     }
 
-    int16_t preset = uiMenuSelectedRow - 1;
+    /*
+     * Eine offene Rueckfrage verfaellt beim Weiterdrehen.
+     */
+    if (uiActionsDeletePending)
+    {
+        UI_ActionsCancelDelete();
+    }
+
+    int16_t oldRow = uiActionsRow;
+    int16_t newRow = oldRow + direction;
+
+    if (newRow < 0)
+    {
+        newRow = 0;
+    }
+
+    if (newRow > (int16_t)(UI_ACTION_COUNT - 1U))
+    {
+        newRow = (int16_t)(UI_ACTION_COUNT - 1U);
+    }
+
+    if (newRow == oldRow)
+    {
+        return;
+    }
+
+    uiActionsRow = (uint8_t)newRow;
+
+    UI_ActionsDrawRow((uint8_t)oldRow);
+    UI_ActionsDrawRow((uint8_t)newRow);
+}
+
+
+static void UI_ActionsHandleEnter(void)
+{
+    switch (uiActionsRow)
+    {
+        case UI_ACTION_LOAD:
+            UI_ActionLoad();
+            break;
+
+        case UI_ACTION_RENAME:
+            UI_NameOpen(
+                UI_NAME_MODE_RENAME_PRESET,
+                uiActionsSlot,
+                UI_MENU_PAGE_MANAGE_ACTIONS);
+            break;
+
+        case UI_ACTION_DELETE:
+        default:
+            if (!uiActionsDeletePending)
+            {
+                /*
+                 * Erster Klick: Rueckfrage. Zweiter Klick: loeschen.
+                 */
+                uiActionsDeletePending = 1U;
+                uiSaveStatus = UI_SAVE_STATUS_DELETE_CONFIRM;
+
+                UI_ActionsDrawRow(UI_ACTION_DELETE);
+                UI_SaveDrawStatus();
+            }
+            else
+            {
+                UI_ActionDelete();
+            }
+            break;
+    }
+}
+
+
+static void UI_ActionsHandleReturn(void)
+{
+    if (uiActionsDeletePending)
+    {
+        UI_ActionsCancelDelete();
+        return;
+    }
+
+    UI_ActionsBack();
+}
+
+
+static void UI_SaveEnsureSelectionVisible(void)
+{
+    int16_t firstRow = (int16_t)(UI_ListBankRow() + 1U);
+
+    if (uiMenuSelectedRow < firstRow)
+    {
+        return;
+    }
+
+    int16_t preset = uiMenuSelectedRow - firstRow;
+    int16_t visible = (int16_t)UI_ListVisiblePresets();
 
     if (preset < (int16_t)uiPresetScrollTop)
     {
         uiPresetScrollTop = (uint8_t)preset;
     }
-    else if (preset >=
-             (int16_t)(uiPresetScrollTop + UI_SAVE_VISIBLE_PRESETS))
+    else if (preset >= (int16_t)uiPresetScrollTop + visible)
     {
-        uiPresetScrollTop =
-            (uint8_t)(preset - UI_SAVE_VISIBLE_PRESETS + 1);
+        uiPresetScrollTop = (uint8_t)(preset - visible + 1);
     }
 }
 
@@ -5399,7 +6096,7 @@ static void UI_SaveHandleEncoder(int8_t direction)
 
         uiSaveStatus = UI_SAVE_STATUS_NONE;
 
-        UI_SaveDrawRow(0U);
+        UI_SaveDrawRow(UI_ListBankRow());
         UI_SaveDrawList();
         UI_SaveDrawStatus();
         return;
@@ -5414,9 +6111,9 @@ static void UI_SaveHandleEncoder(int8_t direction)
         newRow = 0;
     }
 
-    if (newRow > UI_SAVE_LAST_ROW)
+    if (newRow > UI_ListLastRow())
     {
-        newRow = UI_SAVE_LAST_ROW;
+        newRow = UI_ListLastRow();
     }
 
     if (newRow == oldRow)
@@ -5429,7 +6126,6 @@ static void UI_SaveHandleEncoder(int8_t direction)
 
     if (uiPresetScrollTop != oldTop)
     {
-        UI_SaveDrawRow(0U);
         UI_SaveDrawList();
     }
     else
@@ -5439,7 +6135,7 @@ static void UI_SaveHandleEncoder(int8_t direction)
     }
 
     /*
-     * Eine Meldung vom letzten Speichern verschwindet beim Weiterdrehen.
+     * Eine Meldung vom letzten Vorgang verschwindet beim Weiterdrehen.
      */
     if (uiSaveStatus != UI_SAVE_STATUS_NONE)
     {
@@ -5451,7 +6147,22 @@ static void UI_SaveHandleEncoder(int8_t direction)
 
 static void UI_SaveHandleEnter(void)
 {
-    if (uiMenuSelectedRow == 0)
+    uint8_t manage = UI_ListIsManage();
+    uint8_t bankRow = UI_ListBankRow();
+
+    if (manage && uiMenuSelectedRow == 0)
+    {
+        /*
+         * "Rename bank": Name der gewaehlten Bank editieren.
+         */
+        UI_NameOpen(
+            UI_NAME_MODE_RENAME_BANK,
+            0U,
+            UI_MENU_PAGE_MANAGE_PRESETS);
+        return;
+    }
+
+    if (uiMenuSelectedRow == (int16_t)bankRow)
     {
         /*
          * Enter auf der Bank-Zeile: Bank aendern starten / bestaetigen.
@@ -5468,15 +6179,39 @@ static void UI_SaveHandleEnter(void)
 
         uiSaveStatus = UI_SAVE_STATUS_NONE;
 
-        UI_SaveDrawRow(0U);
+        UI_SaveDrawRow(bankRow);
         UI_SaveDrawStatus();
         return;
     }
 
+    uint8_t slot = (uint8_t)(uiMenuSelectedRow - bankRow - 1);
+
+    if (!manage)
+    {
+        /*
+         * Save Preset: Untermenue mit Namenseditor oeffnen.
+         */
+        UI_NameOpen(
+            UI_NAME_MODE_SAVE_PRESET,
+            slot,
+            UI_MENU_PAGE_SAVE_PRESET);
+        return;
+    }
+
     /*
-     * Enter auf einem Preset: Untermenue mit Namenseditor oeffnen.
+     * Manage Presets: Aktionsmenue, aber nur fuer belegte Presets.
      */
-    UI_NameOpen((uint8_t)(uiMenuSelectedRow - 1));
+    char name[PRESET_NAME_LENGTH];
+
+    if (PresetStore_GetSlotName(uiPresetBank, slot, name))
+    {
+        UI_ActionsOpen(slot);
+    }
+    else
+    {
+        uiSaveStatus = UI_SAVE_STATUS_EMPTY_SLOT;
+        UI_SaveDrawStatus();
+    }
 }
 
 
@@ -5490,17 +6225,18 @@ static void UI_SaveHandleReturn(void)
         uiPresetBank = uiPresetBankBackup;
         uiPresetBankEditing = 0U;
 
-        UI_SaveDrawRow(0U);
+        UI_SaveDrawRow(UI_ListBankRow());
         UI_SaveDrawList();
         return;
     }
 
     /*
      * Zurueck zum General Menu: erst den Statusbildschirm darunter
-     * neu zeichnen, dann das Overlay.
+     * neu zeichnen, dann das Overlay. Der Cursor steht auf dem
+     * Eintrag, aus dem man kam.
      */
+    uiMenuSelectedRow = UI_ListIsManage() ? 1 : 0;
     uiMenuPage = UI_MENU_PAGE_GENERAL;
-    uiMenuSelectedRow = 0;
 
     UI_Draw();
     UI_DrawMenu();
@@ -5526,11 +6262,27 @@ static void UI_MenuSavePreset(void)
 }
 
 
+/*
+ * Oeffnet Manage Presets. Der Cursor steht auf der Bank-Zeile, also
+ * auf der zweiten Zeile unter "Rename bank".
+ */
 static void UI_MenuManagePresets(void)
 {
-    /*
-     * Platzhalter: wird im naechsten Schritt implementiert.
-     */
+    if (uiPresetBankEditing)
+    {
+        uiPresetBank = uiPresetBankBackup;
+    }
+
+    uiPresetBankEditing = 0U;
+    uiNameEditing = 0U;
+    uiActionsDeletePending = 0U;
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+    uiPresetScrollTop = 0U;
+
+    uiMenuPage = UI_MENU_PAGE_MANAGE_PRESETS;
+    uiMenuSelectedRow = 1;
+
+    UI_DrawMenu();
 }
 
 
@@ -5713,7 +6465,9 @@ static void UI_DeleteSelectedManualNode(void)
 static void UI_DrawMenu(void)
 {
     if (uiMenuPage ==
-        UI_MENU_PAGE_SAVE_PRESET)
+            UI_MENU_PAGE_SAVE_PRESET ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MANAGE_PRESETS)
     {
         UI_SaveDrawPage();
         return;
@@ -5723,6 +6477,13 @@ static void UI_DrawMenu(void)
         UI_MENU_PAGE_SAVE_NAME)
     {
         UI_NameDrawPage();
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MANAGE_ACTIONS)
+    {
+        UI_ActionsDrawPage();
         return;
     }
 
@@ -5889,7 +6650,9 @@ static void UI_MenuHandleEncoderStep(
     int8_t direction)
 {
     if (uiMenuPage ==
-        UI_MENU_PAGE_SAVE_PRESET)
+            UI_MENU_PAGE_SAVE_PRESET ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MANAGE_PRESETS)
     {
         UI_SaveHandleEncoder(direction);
         return;
@@ -5899,6 +6662,13 @@ static void UI_MenuHandleEncoderStep(
         UI_MENU_PAGE_SAVE_NAME)
     {
         UI_NameHandleEncoder(direction);
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MANAGE_ACTIONS)
+    {
+        UI_ActionsHandleEncoder(direction);
         return;
     }
 
@@ -5953,7 +6723,9 @@ static void UI_MenuHandleEncoderStep(
 static void UI_MenuHandleEnter(void)
 {
     if (uiMenuPage ==
-        UI_MENU_PAGE_SAVE_PRESET)
+            UI_MENU_PAGE_SAVE_PRESET ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MANAGE_PRESETS)
     {
         UI_SaveHandleEnter();
         return;
@@ -5963,6 +6735,13 @@ static void UI_MenuHandleEnter(void)
         UI_MENU_PAGE_SAVE_NAME)
     {
         UI_NameHandleEnter();
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MANAGE_ACTIONS)
+    {
+        UI_ActionsHandleEnter();
         return;
     }
 
@@ -6060,7 +6839,9 @@ static void UI_MenuHandleEnter(void)
 static void UI_MenuHandleReturn(void)
 {
     if (uiMenuPage ==
-        UI_MENU_PAGE_SAVE_PRESET)
+            UI_MENU_PAGE_SAVE_PRESET ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MANAGE_PRESETS)
     {
         UI_SaveHandleReturn();
         return;
@@ -6070,6 +6851,13 @@ static void UI_MenuHandleReturn(void)
         UI_MENU_PAGE_SAVE_NAME)
     {
         UI_NameHandleReturn();
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MANAGE_ACTIONS)
+    {
+        UI_ActionsHandleReturn();
         return;
     }
 
