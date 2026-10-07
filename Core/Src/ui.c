@@ -785,6 +785,25 @@ static uint8_t uiPresetScrollTop = 0U;
 
 static UI_SaveStatus uiSaveStatus = UI_SAVE_STATUS_NONE;
 
+/*
+ * Zeichen-Cache der Textzeilen.
+ *
+ * Jede Textzeile merkt sich, was zuletzt gezeichnet wurde (Text und
+ * Farben). Beim Neuzeichnen werden nur Zeichen ausgegeben, die sich
+ * geaendert haben. Beim Scrollen der Preset-Liste aendern sich dadurch
+ * meist nur die Ziffern der Nummer.
+ *
+ * Slots: 0 = Bank-Zeile, 1 bis 8 = sichtbare Preset-Zeilen,
+ *        9 = Statuszeile.
+ */
+#define UI_SAVE_SHADOW_SLOTS          10U
+#define UI_SAVE_SHADOW_STATUS_SLOT     9U
+
+static char uiSaveShadowText[UI_SAVE_SHADOW_SLOTS][UI_SAVE_TEXT_CAPACITY];
+static uint16_t uiSaveShadowFg[UI_SAVE_SHADOW_SLOTS];
+static uint16_t uiSaveShadowBg[UI_SAVE_SHADOW_SLOTS];
+static uint8_t uiSaveShadowValid[UI_SAVE_SHADOW_SLOTS];
+
 
 /* -------------------------------------------------------------------------- */
 /* Save Preset: Untermenue mit Namenseditor                                   */
@@ -4371,16 +4390,150 @@ static void UI_SaveBuildRowText(
 
 
 /* -------------------------------------------------------------------------- */
+/* Save Preset: Textzeilen mit Zeichen-Cache                                  */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Muss aufgerufen werden, nachdem der Bildschirm geloescht oder
+ * anders ueberschrieben wurde.
+ */
+static void UI_SaveShadowInvalidate(void)
+{
+    for (uint8_t i = 0U; i < UI_SAVE_SHADOW_SLOTS; i++)
+    {
+        uiSaveShadowValid[i] = 0U;
+    }
+}
+
+
+/*
+ * Zeichnet eine Textzeile.
+ *
+ * Sind Farben unveraendert und der Slot gueltig, werden nur die
+ * Zeichen neu gezeichnet, die sich gegenueber dem letzten Mal
+ * geaendert haben. Sonst wird die Zeile komplett neu gefuellt und
+ * gezeichnet.
+ */
+static void UI_SaveDrawTextLine(
+    uint8_t slot,
+    uint16_t rowY,
+    uint16_t rowWidth,
+    uint16_t rowHeight,
+    uint16_t textY,
+    const char *text,
+    uint16_t fg,
+    uint16_t bg)
+{
+    char *shadow = uiSaveShadowText[slot];
+
+    if (!uiSaveShadowValid[slot] ||
+        uiSaveShadowFg[slot] != fg ||
+        uiSaveShadowBg[slot] != bg)
+    {
+        ST7735_FillRect(0U, rowY, rowWidth, rowHeight, bg);
+
+        Font5x7_DrawString(
+            UI_SAVE_TEXT_X_OFFSET,
+            textY,
+            text,
+            fg,
+            bg,
+            1U
+        );
+    }
+    else
+    {
+        uint8_t ended = 0U;
+
+        for (uint8_t i = 0U;
+             i < (UI_SAVE_TEXT_CAPACITY - 1U);
+             i++)
+        {
+            /*
+             * Hinter dem Ende des neuen Textes gilt '\0', ohne
+             * weiter im Text zu lesen.
+             */
+            char newChar = '\0';
+
+            if (!ended)
+            {
+                newChar = text[i];
+
+                if (newChar == '\0')
+                {
+                    ended = 1U;
+                }
+            }
+
+            char oldChar = shadow[i];
+
+            if (newChar == '\0' && oldChar == '\0')
+            {
+                break;
+            }
+
+            if (newChar == oldChar)
+            {
+                continue;
+            }
+
+            /*
+             * Reste des alten Textes werden mit Leerzeichen
+             * ueberschrieben.
+             */
+            char cell[2];
+
+            cell[0] = (newChar == '\0') ? ' ' : newChar;
+            cell[1] = '\0';
+
+            Font5x7_DrawString(
+                (uint16_t)(UI_SAVE_TEXT_X_OFFSET + (6U * i)),
+                textY,
+                cell,
+                fg,
+                bg,
+                1U
+            );
+        }
+    }
+
+    /*
+     * Cache aktualisieren.
+     */
+    uint8_t i = 0U;
+
+    while (text[i] != '\0' &&
+           i < (UI_SAVE_TEXT_CAPACITY - 1U))
+    {
+        shadow[i] = text[i];
+        i++;
+    }
+
+    while (i < UI_SAVE_TEXT_CAPACITY)
+    {
+        shadow[i] = '\0';
+        i++;
+    }
+
+    uiSaveShadowFg[slot] = fg;
+    uiSaveShadowBg[slot] = bg;
+    uiSaveShadowValid[slot] = 1U;
+}
+
+
+/* -------------------------------------------------------------------------- */
 /* Save Preset: Zeichnen der Liste                                            */
 /* -------------------------------------------------------------------------- */
 
 static void UI_SaveDrawRow(uint8_t row)
 {
     uint16_t y;
+    uint8_t slot;
 
     if (row == 0U)
     {
         y = UI_SAVE_HEADER_Y;
+        slot = 0U;
     }
     else
     {
@@ -4395,6 +4548,7 @@ static void UI_SaveDrawRow(uint8_t row)
 
         y = (uint16_t)(UI_SAVE_LIST_Y +
             ((uint16_t)position * UI_SAVE_ROW_HEIGHT));
+        slot = (uint8_t)(position + 1);
     }
 
     uint16_t background = UI_COLOR_BACKGROUND;
@@ -4411,21 +4565,15 @@ static void UI_SaveDrawRow(uint8_t row)
 
     UI_SaveBuildRowText(row, text);
 
-    ST7735_FillRect(
-        0U,
+    UI_SaveDrawTextLine(
+        slot,
         y,
         UI_SAVE_ROW_WIDTH,
         UI_SAVE_ROW_HEIGHT,
-        background
-    );
-
-    Font5x7_DrawString(
-        UI_SAVE_TEXT_X_OFFSET,
         y + UI_SAVE_TEXT_Y_OFFSET,
         text,
         UI_COLOR_TEXT_LIGHT,
-        background,
-        1U
+        background
     );
 }
 
@@ -4547,21 +4695,15 @@ static void UI_SaveDrawStatus(void)
             break;
     }
 
-    ST7735_FillRect(
-        0U,
+    UI_SaveDrawTextLine(
+        UI_SAVE_SHADOW_STATUS_SLOT,
         UI_SAVE_SEPARATOR_Y + 1U,
         UI_DISPLAY_WIDTH,
         UI_DISPLAY_HEIGHT - (UI_SAVE_SEPARATOR_Y + 1U),
-        UI_COLOR_BACKGROUND
-    );
-
-    Font5x7_DrawString(
-        UI_SAVE_TEXT_X_OFFSET,
         UI_SAVE_STATUS_Y,
         text,
         color,
-        UI_COLOR_BACKGROUND,
-        1U
+        UI_COLOR_BACKGROUND
     );
 }
 
@@ -4576,6 +4718,8 @@ static void UI_SaveDrawPage(void)
         UI_DISPLAY_HEIGHT,
         UI_COLOR_BACKGROUND
     );
+
+    UI_SaveShadowInvalidate();
 
     UI_SaveDrawRow(0U);
     UI_SaveDrawList();
@@ -4885,6 +5029,8 @@ static void UI_NameDrawPage(void)
         UI_DISPLAY_HEIGHT,
         UI_COLOR_BACKGROUND
     );
+
+    UI_SaveShadowInvalidate();
 
     position = UI_SaveAppendText(
         header, 0U, UI_SAVE_TEXT_CAPACITY, "Bank ");
