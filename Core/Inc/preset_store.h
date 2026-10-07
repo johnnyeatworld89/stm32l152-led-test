@@ -36,7 +36,8 @@ typedef enum
     PRESET_STORE_OK = 0,
     PRESET_STORE_ERR_PARAM,
     PRESET_STORE_ERR_FULL,
-    PRESET_STORE_ERR_WRITE
+    PRESET_STORE_ERR_WRITE,
+    PRESET_STORE_ERR_NOT_FOUND
 
 } PresetStoreStatus;
 
@@ -77,6 +78,46 @@ PresetStoreStatus PresetStore_SavePreset(
     const char *name,
     const uint8_t *layout,
     uint8_t layoutLength
+);
+
+/*
+ * Reads the layout block of a preset into layout (at least
+ * PRESET_LAYOUT_MAX_BYTES bytes) and its length into length.
+ * Returns PRESET_STORE_ERR_NOT_FOUND for an empty slot.
+ */
+PresetStoreStatus PresetStore_ReadLayout(
+    uint8_t bank,
+    uint8_t slot,
+    uint8_t *layout,
+    uint8_t *length
+);
+
+/*
+ * Changes only the name of an existing preset. The layout stays
+ * untouched. Returns PRESET_STORE_ERR_NOT_FOUND for an empty slot.
+ */
+PresetStoreStatus PresetStore_SetPresetName(
+    uint8_t bank,
+    uint8_t slot,
+    const char *name
+);
+
+/*
+ * Stores a bank name. An empty name restores the default
+ * "bank <number>".
+ */
+PresetStoreStatus PresetStore_SetBankName(
+    uint8_t bank,
+    const char *name
+);
+
+/*
+ * Deletes a preset and frees its record.
+ * Returns PRESET_STORE_ERR_NOT_FOUND for an empty slot.
+ */
+PresetStoreStatus PresetStore_DeletePreset(
+    uint8_t bank,
+    uint8_t slot
 );
 
 #endif
