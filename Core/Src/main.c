@@ -1013,7 +1013,7 @@ int main(void)
         Error_Handler();
     }
 
-    MidiPresets_Process();
+    
     /*
      * Allow the external hardware and reset
      * pull-up to stabilize.
@@ -1087,6 +1087,7 @@ int main(void)
          * Process the encoder events queued by the interrupt.
          */
         Input_ProcessEvents();
+   MidiPresets_Process();
     }
 }
 
