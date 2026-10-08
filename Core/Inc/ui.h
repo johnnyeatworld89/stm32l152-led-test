@@ -289,4 +289,20 @@ void UI_HandleReturnButton(void);
  */
 void UI_HandleMenuButton(void);
 
+/*
+ * MIDI-Steuerung der Presets (siehe midi_presets.h).
+ *
+ * UI_SelectBank waehlt die Bank vor, UI_RecallPreset laedt ein Preset
+ * (0 bis 23) der gewaehlten Bank. Beides wird im Menue ignoriert.
+ * Ein Preset, dessen Layout schon aktiv ist, wird nicht neu geladen und
+ * nicht gemeldet. Rueckgabe: 1 bei Erfolg.
+ */
+uint8_t UI_SelectBank(
+    uint8_t bank
+);
+
+uint8_t UI_RecallPreset(
+    uint8_t slot
+);
+
 #endif
