@@ -2,6 +2,7 @@
 #include "st7735.h"
 #include "font5x7.h"
 #include "preset_store.h"
+#include "midi_presets.h"
 
 #define UI_COLOR_BACKGROUND          0x0000
 #define UI_COLOR_TEXT_LIGHT          0xFFFF
@@ -5081,6 +5082,130 @@ static uint8_t UI_PresetApplyLayout(
 
 
 /*
+ * Liest ein Preset aus dem Speicher und stellt sein Layout her. Bei
+ * Erfolg wird es per MIDI gemeldet (Program Change und Control Change).
+ * Das Neuzeichnen macht der Aufrufer.
+ *
+ * Rueckgabe: 1 bei Erfolg, 0 bei leerem Slot oder ungueltigem Layout.
+ */
+static uint8_t UI_PresetLoad(
+    uint8_t bank,
+    uint8_t slot)
+{
+    uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
+    uint8_t length = 0U;
+
+    if (PresetStore_ReadLayout(bank, slot, layout, &length) !=
+            PRESET_STORE_OK ||
+        !UI_PresetApplyLayout(layout, length))
+    {
+        return 0U;
+    }
+
+    MidiPresets_NotifyPresetChanged(bank, slot);
+
+    return 1U;
+}
+
+
+/*
+ * Waehlt die Bank vor (Program Change). Im Menue wird das ignoriert,
+ * weil dort eine Bank-Aenderung ein laufendes Speichern oder Umbenennen
+ * auf eine andere Bank umlenken wuerde.
+ *
+ * Rueckgabe: 1 wenn die Bank gewaehlt wurde.
+ */
+uint8_t UI_SelectBank(uint8_t bank)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        uiMode == UI_MODE_MENU)
+    {
+        return 0U;
+    }
+
+    uiPresetBank = bank;
+
+    return 1U;
+}
+
+
+/*
+ * Prueft, ob das aktuelle Layout dem gespeicherten Preset entspricht.
+ *
+ * Wird fuer die MIDI-Steuerung gebraucht: Kommt die eigene Meldung
+ * ueber eine Schleife (MIDI OUT zurueck in MIDI IN) wieder an, verlangt
+ * sie den Zustand, in dem man schon ist, und es passiert nichts mehr.
+ *
+ * Wenn spaeter Loop-Status und Schaltplan zum Preset gehoeren, muessen
+ * sie hier mit verglichen werden.
+ */
+static uint8_t UI_PresetMatchesCurrent(
+    uint8_t bank,
+    uint8_t slot)
+{
+    uint8_t current[PRESET_LAYOUT_MAX_BYTES];
+    uint8_t stored[PRESET_LAYOUT_MAX_BYTES];
+    uint8_t storedLength = 0U;
+
+    uint8_t currentLength =
+        UI_PresetSerializeLayout(current, sizeof(current));
+
+    if (currentLength == 0U ||
+        PresetStore_ReadLayout(bank, slot, stored, &storedLength) !=
+            PRESET_STORE_OK ||
+        storedLength != currentLength)
+    {
+        return 0U;
+    }
+
+    for (uint8_t i = 0U; i < currentLength; i++)
+    {
+        if (current[i] != stored[i])
+        {
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+
+/*
+ * Laedt ein Preset der gewaehlten Bank (Control Change) und zeichnet
+ * die Statusansicht neu. Im Menue wird das ignoriert. Ein leerer Slot
+ * aendert nichts.
+ *
+ * Ist das Layout des Presets schon aktiv, passiert nichts: es wird weder
+ * neu gezeichnet noch per MIDI gemeldet. Das beendet Rueckkopplungen,
+ * wenn MIDI OUT wieder in MIDI IN fuehrt.
+ *
+ * Rueckgabe: 1 wenn das Preset geladen wurde.
+ */
+uint8_t UI_RecallPreset(uint8_t slot)
+{
+    if (slot >= PRESET_SLOTS_PER_BANK ||
+        uiMode == UI_MODE_MENU)
+    {
+        return 0U;
+    }
+
+    if (UI_PresetMatchesCurrent(uiPresetBank, slot) ||
+        !UI_PresetLoad(uiPresetBank, slot))
+    {
+        return 0U;
+    }
+
+    uiMenuControlMode = UI_MENU_CONTROL_NAVIGATION;
+    uiMenuPage = UI_MENU_PAGE_ROOT;
+    uiMode = UI_MODE_STATE_VIEW;
+
+    UI_Draw();
+
+    return 1U;
+}
+
+
+/*
  * Speichert das aktuelle Layout unter dem Namen in den Slot der
  * gewaehlten Bank und kehrt danach zur Preset-Liste zurueck, die das
  * Ergebnis in der Statuszeile zeigt.
@@ -5112,6 +5237,8 @@ static void UI_SaveExecute(
         if (result == PRESET_STORE_OK)
         {
             uiSaveStatus = UI_SAVE_STATUS_SAVED;
+
+            MidiPresets_NotifyPresetChanged(uiPresetBank, slot);
         }
         else if (result == PRESET_STORE_ERR_FULL)
         {
@@ -5901,19 +6028,13 @@ static void UI_ActionsBack(void)
 
 
 /*
- * Load: stellt das gespeicherte Layout her und verlaesst das Menue.
- * Bei einem Fehler bleibt das aktuelle Layout unveraendert und die
- * Meldung erscheint in der Statuszeile.
+ * Load: stellt das gespeicherte Layout her, meldet es per MIDI und
+ * verlaesst das Menue. Bei einem Fehler bleibt das aktuelle Layout
+ * unveraendert und die Meldung erscheint in der Statuszeile.
  */
 static void UI_ActionLoad(void)
 {
-    uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
-    uint8_t length = 0U;
-
-    if (PresetStore_ReadLayout(
-            uiPresetBank, uiActionsSlot, layout, &length) !=
-            PRESET_STORE_OK ||
-        !UI_PresetApplyLayout(layout, length))
+    if (!UI_PresetLoad(uiPresetBank, uiActionsSlot))
     {
         uiSaveStatus = UI_SAVE_STATUS_LOAD_FAILED;
         UI_SaveDrawStatus();
