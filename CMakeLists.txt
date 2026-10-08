@@ -24,6 +24,7 @@ add_executable(firmware
     Core/Src/system_stm32l1xx.c
     Core/Src/ui.c
     Core/Src/preset_store.c
+    Core/Src/midi_presets.c
 
     Libraries/ST7735/st7735.c
     Libraries/GFX/gfx.c
