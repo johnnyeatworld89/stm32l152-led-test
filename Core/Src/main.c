@@ -13,6 +13,7 @@
 #include "mcp23s17.h"
 #include "midi.h"
 
+#include "midi_presets.h"
 
 /* -------------------------------------------------------------------------- */
 /* Configuration                                                              */
@@ -1012,7 +1013,7 @@ int main(void)
         Error_Handler();
     }
 
-
+    MidiPresets_Process();
     /*
      * Allow the external hardware and reset
      * pull-up to stabilize.
