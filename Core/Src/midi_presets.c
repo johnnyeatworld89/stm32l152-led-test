@@ -11,9 +11,16 @@
 typedef enum
 {
     EVENT_BANK = 1U,
-    EVENT_PRESET
+    EVENT_PRESET,
+    EVENT_SAVE_ARM
 
 } EventType;
+
+_Static_assert(
+    (MIDI_PRESETS_CC_SAVE < MIDI_PRESETS_CC_FIRST) ||
+    (MIDI_PRESETS_CC_SAVE >=
+        (MIDI_PRESETS_CC_FIRST + PRESET_SLOTS_PER_BANK)),
+    "MIDI_PRESETS_CC_SAVE must not be a preset number");
 
 typedef struct
 {
@@ -108,10 +115,20 @@ void MidiPresets_OnControlChange(
     uint8_t controller,
     uint8_t value)
 {
-    (void)value;    /* every value selects the preset */
+    (void)value;    /* every value counts */
 
-    if (!Channel_Matches(channel) ||
-        controller < MIDI_PRESETS_CC_FIRST ||
+    if (!Channel_Matches(channel))
+    {
+        return;
+    }
+
+    if (controller == MIDI_PRESETS_CC_SAVE)
+    {
+        Queue_Push(EVENT_SAVE_ARM, 0U);
+        return;
+    }
+
+    if (controller < MIDI_PRESETS_CC_FIRST ||
         controller >= (MIDI_PRESETS_CC_FIRST + PRESET_SLOTS_PER_BANK))
     {
         return;
@@ -166,8 +183,11 @@ void MidiPresets_Process(void)
 
     /*
      * Several Control Changes in a row are merged: only the last one
-     * loads a preset. A Program Change in between changes the bank, so
-     * the pending preset has to be loaded first.
+     * loads a preset. A Program Change or CC0 in between has to see the
+     * preset before it, so a pending preset is loaded first.
+     *
+     * While saving is armed, the next preset number does not load but
+     * saves. The events are handled in the order they arrived.
      */
     int16_t pendingSlot = -1;
 
@@ -175,7 +195,15 @@ void MidiPresets_Process(void)
     {
         if (event.type == EVENT_PRESET)
         {
-            pendingSlot = event.value;
+            if (UI_SaveArmed())
+            {
+                UI_SavePresetFromMidi(event.value);
+            }
+            else
+            {
+                pendingSlot = event.value;
+            }
+
             continue;
         }
 
@@ -185,7 +213,14 @@ void MidiPresets_Process(void)
             pendingSlot = -1;
         }
 
-        UI_SelectBank(event.value);
+        if (event.type == EVENT_SAVE_ARM)
+        {
+            UI_SaveArmToggle();
+        }
+        else
+        {
+            UI_SelectBank(event.value);
+        }
     }
 
     if (pendingSlot >= 0)

@@ -793,6 +793,40 @@ static uint8_t uiPresetScrollTop = 0U;
 
 static UI_SaveStatus uiSaveStatus = UI_SAVE_STATUS_NONE;
 
+
+/* -------------------------------------------------------------------------- */
+/* Speichern per MIDI: Zustand und Anzeige auf dem Statusbildschirm            */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * CC0 (siehe midi_presets.h) schaltet das Speichern "scharf". Die naechste
+ * Preset-Nummer (CC1 bis CC24) speichert dann das aktuelle Layout in der
+ * aktuellen Bank. Erneutes CC0 bricht ab.
+ */
+static uint8_t uiMidiSaveArmed = 0U;
+
+typedef enum
+{
+    UI_MIDI_SAVE_RESULT_NONE = 0,
+    UI_MIDI_SAVE_RESULT_SAVED,
+    UI_MIDI_SAVE_RESULT_FULL,
+    UI_MIDI_SAVE_RESULT_ERROR
+
+} UI_MidiSaveResult;
+
+/*
+ * Ergebnis des letzten Speicherns per MIDI. Es wird in der Fusszeile
+ * gezeigt, bis sich dort etwas aendert (z.B. beim Wechsel der Auswahl).
+ */
+static UI_MidiSaveResult uiMidiSaveResult = UI_MIDI_SAVE_RESULT_NONE;
+static uint8_t uiMidiSaveResultSlot = 0U;
+static uint8_t uiMidiSaveResultFresh = 0U;
+
+/* Breite des Bereichs links in der Fusszeile (Bank / Speichern). */
+#define UI_BANK_INDICATOR_X             2U
+#define UI_BANK_INDICATOR_WIDTH        50U
+#define UI_COLOR_ERROR                 0xF800U
+
 /*
  * Zeichen-Cache der Textzeilen.
  *
@@ -5123,7 +5157,16 @@ uint8_t UI_SelectBank(uint8_t bank)
         return 0U;
     }
 
-    uiPresetBank = bank;
+    if (bank != uiPresetBank)
+    {
+        uiPresetBank = bank;
+        uiMidiSaveResult = UI_MIDI_SAVE_RESULT_NONE;
+
+        /*
+         * Die Bank steht in der Fusszeile der Statusansicht.
+         */
+        UI_DrawFooter();
+    }
 
     return 1U;
 }
@@ -5200,6 +5243,114 @@ uint8_t UI_RecallPreset(uint8_t slot)
     uiMode = UI_MODE_STATE_VIEW;
 
     UI_Draw();
+
+    return 1U;
+}
+
+
+/*
+ * Zeigt das Ergebnis des Speicherns in der Fusszeile.
+ */
+static void UI_MidiSaveShowResult(
+    UI_MidiSaveResult result,
+    uint8_t slot)
+{
+    uiMidiSaveResult = result;
+    uiMidiSaveResultSlot = slot;
+    uiMidiSaveResultFresh = 1U;
+
+    UI_DrawFooter();
+
+    uiMidiSaveResultFresh = 0U;
+}
+
+
+/*
+ * CC0: schaltet das Speichern per MIDI scharf bzw. bricht es ab.
+ * Im Menue wird es ignoriert.
+ *
+ * Rueckgabe: 1 wenn das Speichern danach scharf ist.
+ */
+uint8_t UI_SaveArmToggle(void)
+{
+    if (uiMode == UI_MODE_MENU)
+    {
+        uiMidiSaveArmed = 0U;
+        return 0U;
+    }
+
+    uiMidiSaveArmed = (uint8_t)!uiMidiSaveArmed;
+    uiMidiSaveResult = UI_MIDI_SAVE_RESULT_NONE;
+
+    UI_DrawFooter();
+
+    return uiMidiSaveArmed;
+}
+
+
+uint8_t UI_SaveArmed(void)
+{
+    return uiMidiSaveArmed;
+}
+
+
+/*
+ * Speichert das aktuelle Layout in der aktuellen Bank unter der
+ * Preset-Nummer slot + 1 (slot = 0 bis 23) und meldet es per MIDI.
+ *
+ * Ein vorhandener Name bleibt erhalten, ein leerer Slot bekommt den
+ * Namen "preset nn" wie im Menue. Danach ist das Speichern nicht mehr
+ * scharf, auch wenn es fehlschlaegt.
+ *
+ * Rueckgabe: 1 bei Erfolg.
+ */
+uint8_t UI_SavePresetFromMidi(uint8_t slot)
+{
+    uiMidiSaveArmed = 0U;
+
+    if (slot >= PRESET_SLOTS_PER_BANK ||
+        uiMode == UI_MODE_MENU)
+    {
+        return 0U;
+    }
+
+    uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
+    char name[PRESET_NAME_LENGTH];
+
+    uint8_t length =
+        UI_PresetSerializeLayout(layout, sizeof(layout));
+
+    if (length == 0U)
+    {
+        UI_MidiSaveShowResult(UI_MIDI_SAVE_RESULT_ERROR, slot);
+        return 0U;
+    }
+
+    if (!PresetStore_GetSlotName(uiPresetBank, slot, name))
+    {
+        uint8_t position = UI_SaveAppendText(
+            name, 0U, sizeof(name), "preset ");
+
+        UI_SaveAppendUInt2(
+            name, position, sizeof(name), (uint8_t)(slot + 1U));
+    }
+
+    PresetStoreStatus result = PresetStore_SavePreset(
+        uiPresetBank, slot, name, layout, length);
+
+    if (result != PRESET_STORE_OK)
+    {
+        UI_MidiSaveShowResult(
+            (result == PRESET_STORE_ERR_FULL) ?
+                UI_MIDI_SAVE_RESULT_FULL :
+                UI_MIDI_SAVE_RESULT_ERROR,
+            slot);
+
+        return 0U;
+    }
+
+    MidiPresets_NotifyPresetChanged(uiPresetBank, slot);
+    UI_MidiSaveShowResult(UI_MIDI_SAVE_RESULT_SAVED, slot);
 
     return 1U;
 }
@@ -6725,6 +6876,14 @@ static void UI_OpenMenu(void)
         UI_FOCUS_SELECTED;
 
     uiMode = UI_MODE_MENU;
+
+    /*
+     * Ein "scharfes" Speichern per MIDI verfaellt, wenn das Menue
+     * geoeffnet wird, sonst wuerde es nach dem Schliessen ueberraschend
+     * ausgefuehrt.
+     */
+    uiMidiSaveArmed = 0U;
+    uiMidiSaveResult = UI_MIDI_SAVE_RESULT_NONE;
     uiMenuPage = UI_MENU_PAGE_ROOT;
     uiMenuControlMode =
         UI_MENU_CONTROL_NAVIGATION;
@@ -9207,6 +9366,88 @@ void UI_SetShiftDebugState(
     UI_DrawShiftDebugIndicator();
 }
 
+/*
+ * Bereich links in der Fusszeile:
+ *
+ *   Bank 12     aktuell gewaehlte Bank
+ *   Save B12    Speichern per MIDI ist scharf (CC0 wurde empfangen)
+ *   Saved 07    Preset 07 wurde per MIDI gespeichert
+ *   Mem full    Speicher voll
+ *   Save err    Schreibfehler
+ *
+ * Die Meldungen nach dem Speichern bleiben, bis die Fusszeile aus einem
+ * anderen Grund neu gezeichnet wird (z.B. beim Wechsel der Auswahl).
+ */
+static void UI_DrawBankIndicator(void)
+{
+    char text[12];
+    uint16_t color = UI_COLOR_BORDER_SELECTED;
+    uint8_t position = 0U;
+
+    if (!uiMidiSaveResultFresh)
+    {
+        uiMidiSaveResult = UI_MIDI_SAVE_RESULT_NONE;
+    }
+
+    switch (uiMidiSaveResult)
+    {
+        case UI_MIDI_SAVE_RESULT_SAVED:
+            color = UI_COLOR_LOOP_CONFIRMED;
+            position = UI_SaveAppendText(
+                text, 0U, sizeof(text), "Saved ");
+            UI_SaveAppendUInt2(
+                text, position, sizeof(text),
+                (uint8_t)(uiMidiSaveResultSlot + 1U));
+            break;
+
+        case UI_MIDI_SAVE_RESULT_FULL:
+            color = UI_COLOR_ERROR;
+            UI_SaveAppendText(text, 0U, sizeof(text), "Mem full");
+            break;
+
+        case UI_MIDI_SAVE_RESULT_ERROR:
+            color = UI_COLOR_ERROR;
+            UI_SaveAppendText(text, 0U, sizeof(text), "Save err");
+            break;
+
+        case UI_MIDI_SAVE_RESULT_NONE:
+        default:
+            if (uiMidiSaveArmed)
+            {
+                color = UI_COLOR_LOOP_UNCONFIRMED;
+                position = UI_SaveAppendText(
+                    text, 0U, sizeof(text), "Save B");
+            }
+            else
+            {
+                position = UI_SaveAppendText(
+                    text, 0U, sizeof(text), "Bank ");
+            }
+
+            UI_SaveAppendUInt(
+                text, position, sizeof(text), uiPresetBank);
+            break;
+    }
+
+    uint16_t textHeight = Font5x7_GetHeight(1);
+    uint16_t textY = UI_FOOTER_TOP;
+
+    if (textHeight < UI_FOOTER_HEIGHT)
+    {
+        textY += (UI_FOOTER_HEIGHT - textHeight) / 2;
+    }
+
+    Font5x7_DrawString(
+        UI_BANK_INDICATOR_X,
+        textY,
+        text,
+        color,
+        UI_COLOR_BACKGROUND,
+        1
+    );
+}
+
+
 static void UI_DrawFooter(void)
 {
     const UI_Item *focusedItem = UI_GetFocusedItem();
@@ -9214,6 +9455,8 @@ static void UI_DrawFooter(void)
     ST7735_FillRect(0, UI_FOOTER_TOP,
                     UI_DISPLAY_WIDTH, UI_FOOTER_HEIGHT,
                     UI_COLOR_BACKGROUND);
+
+    UI_DrawBankIndicator();
 
     if (focusedItem == NULL)
 {
@@ -9237,9 +9480,9 @@ if (focusedIndex < 0 ||
     int16_t itemCenterX = geometry->x + (geometry->width / 2);
     int16_t textX = itemCenterX - ((int16_t)textWidth / 2);
 
-    if (textX < 0)
+    if (textX < (int16_t)(UI_BANK_INDICATOR_X + UI_BANK_INDICATOR_WIDTH))
     {
-        textX = 0;
+        textX = (int16_t)(UI_BANK_INDICATOR_X + UI_BANK_INDICATOR_WIDTH);
     }
 
    int16_t footerTextRightLimit =
@@ -9255,9 +9498,9 @@ if ((textX + (int16_t)textWidth) >
 }
 
 
-if (textX < 0)
+if (textX < (int16_t)(UI_BANK_INDICATOR_X + UI_BANK_INDICATOR_WIDTH))
 {
-    textX = 0;
+    textX = (int16_t)(UI_BANK_INDICATOR_X + UI_BANK_INDICATOR_WIDTH);
 }
 
     uint16_t textHeight = Font5x7_GetHeight(1);
