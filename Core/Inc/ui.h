@@ -305,4 +305,20 @@ uint8_t UI_RecallPreset(
     uint8_t slot
 );
 
+/*
+ * Speichern per MIDI (siehe midi_presets.h).
+ *
+ * UI_SaveArmToggle schaltet das Speichern scharf bzw. bricht es ab (CC0),
+ * UI_SavePresetFromMidi speichert das aktuelle Layout in der aktuellen
+ * Bank unter dem Preset slot (0 bis 23) und meldet es per MIDI.
+ * Im Menue wird beides ignoriert.
+ */
+uint8_t UI_SaveArmToggle(void);
+
+uint8_t UI_SaveArmed(void);
+
+uint8_t UI_SavePresetFromMidi(
+    uint8_t slot
+);
+
 #endif

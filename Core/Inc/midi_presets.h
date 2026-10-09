@@ -13,6 +13,16 @@
  *   Control Change (number)       loads a preset of the selected bank,
  *                                 the value (0 to 127) is ignored
  *
+ * Saving by MIDI:
+ *   Control Change MIDI_PRESETS_CC_SAVE (0)   arms saving, sending it
+ *                                             again cancels
+ *   then Control Change 1 to 24               saves the current layout
+ *                                             into that preset of the
+ *                                             selected bank
+ *   The armed state is shown on the status screen. It ends after the
+ *   save, with a second CC0, or when the menu is opened. Program Change
+ *   while armed only changes the bank to save into.
+ *
  * Outgoing, whenever a preset is saved or loaded (menu or MIDI):
  *   Program Change (bank), then Control Change (preset number, value 127)
  *
@@ -53,6 +63,14 @@
  */
 #ifndef MIDI_PRESETS_CC_FIRST
 #define MIDI_PRESETS_CC_FIRST        1U
+#endif
+
+/*
+ * Control Change number that arms saving by MIDI. The value is ignored.
+ * It must not lie in the range of the preset numbers.
+ */
+#ifndef MIDI_PRESETS_CC_SAVE
+#define MIDI_PRESETS_CC_SAVE         0U
 #endif
 
 /* Value of the Control Change that is sent after a save or load. */
