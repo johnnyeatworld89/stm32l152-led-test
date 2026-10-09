@@ -12,18 +12,55 @@ extern "C" {
  * MIDI 1.0
  * UART: 31250 baud, 8 data bits, no parity, 1 stop bit
  *
- * STM32L152RET6 Nucleo:
- *   USART2_TX = PA2
- *   USART2_RX = PA3
+ * Choose the UART with MIDI_UART_PORT (1 or 2), for example in the
+ * project settings with -DMIDI_UART_PORT=2:
+ *
+ *   MIDI_UART_PORT 1 (default)       MIDI_UART_PORT 2
+ *   USART1_TX = PA9  (Nucleo D8)     USART2_TX = PA2  (Nucleo D1)
+ *   USART1_RX = PA10 (Nucleo D2)     USART2_RX = PA3  (Nucleo D0)
+ *
+ * On a Nucleo-64 board PA2/PA3 are connected to the ST-LINK by default
+ * (solder bridges SB13/SB14), PA9/PA10 are free. With USART1 no solder
+ * bridge has to be changed.
  *
  * MIDI IN:
- *   H11L1 output -> PA3 / USART2_RX
+ *   H11L1 output -> RX pin (PA10 or PA3)
  *
  * MIDI OUT:
- *   PA2 / USART2_TX -> MIDI OUT driver
+ *   TX pin (PA9 or PA2) -> MIDI OUT driver
  */
 
-/* Initialize USART2 for MIDI. */
+#ifndef MIDI_UART_PORT
+#define MIDI_UART_PORT 1
+#endif
+
+#if MIDI_UART_PORT == 1
+
+#define MIDI_UART_INSTANCE          USART1
+#define MIDI_UART_IRQn              USART1_IRQn
+#define MIDI_UART_IRQ_HANDLER       USART1_IRQHandler
+#define MIDI_UART_CLK_ENABLE()      __HAL_RCC_USART1_CLK_ENABLE()
+#define MIDI_UART_CLK_DISABLE()     __HAL_RCC_USART1_CLK_DISABLE()
+#define MIDI_UART_GPIO_PORT         GPIOA
+#define MIDI_UART_GPIO_PINS         (GPIO_PIN_9 | GPIO_PIN_10)
+#define MIDI_UART_GPIO_AF           GPIO_AF7_USART1
+
+#elif MIDI_UART_PORT == 2
+
+#define MIDI_UART_INSTANCE          USART2
+#define MIDI_UART_IRQn              USART2_IRQn
+#define MIDI_UART_IRQ_HANDLER       USART2_IRQHandler
+#define MIDI_UART_CLK_ENABLE()      __HAL_RCC_USART2_CLK_ENABLE()
+#define MIDI_UART_CLK_DISABLE()     __HAL_RCC_USART2_CLK_DISABLE()
+#define MIDI_UART_GPIO_PORT         GPIOA
+#define MIDI_UART_GPIO_PINS         (GPIO_PIN_2 | GPIO_PIN_3)
+#define MIDI_UART_GPIO_AF           GPIO_AF7_USART2
+
+#else
+#error "MIDI_UART_PORT must be 1 (USART1, PA9/PA10) or 2 (USART2, PA2/PA3)"
+#endif
+
+/* Initialize the MIDI UART (see MIDI_UART_PORT). */
 HAL_StatusTypeDef MIDI_Init(void);
 
 /* Start interrupt-driven MIDI reception. */

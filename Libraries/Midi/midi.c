@@ -2,8 +2,8 @@
 
 /*
  * STM32L152RET6:
- * USART2_TX = PA2
- * USART2_RX = PA3
+ * The UART and its pins are selected with MIDI_UART_PORT in midi.h
+ * (USART1: PA9/PA10, USART2: PA2/PA3).
  */
 
 UART_HandleTypeDef hMIDI_UART;
@@ -23,7 +23,7 @@ static void MIDI_ResetParser(void);
 
 HAL_StatusTypeDef MIDI_Init(void)
 {
-    hMIDI_UART.Instance = USART2;
+    hMIDI_UART.Instance = MIDI_UART_INSTANCE;
     hMIDI_UART.Init.BaudRate = 31250;
     hMIDI_UART.Init.WordLength = UART_WORDLENGTH_8B;
     hMIDI_UART.Init.StopBits = UART_STOPBITS_1;
@@ -167,7 +167,7 @@ HAL_StatusTypeDef MIDI_PitchBend(uint8_t channel,
 
 void MIDI_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance != USART2)
+    if (huart->Instance != MIDI_UART_INSTANCE)
     {
         return;
     }
@@ -182,7 +182,7 @@ void MIDI_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void MIDI_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance != USART2)
+    if (huart->Instance != MIDI_UART_INSTANCE)
     {
         return;
     }
@@ -344,19 +344,20 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 }
 
 /*
- * GPIO initialization for USART2.
+ * GPIO initialization for the MIDI UART.
  *
- * PA2 = USART2_TX
- * PA3 = USART2_RX
+ * USART1: PA9 = TX, PA10 = RX
+ * USART2: PA2 = TX, PA3  = RX
  */
 
 /*
- * USART2 interrupt handler.
+ * MIDI UART interrupt handler (USART1_IRQHandler or USART2_IRQHandler,
+ * depending on MIDI_UART_PORT).
  *
  * This is kept here so no additional modification of
  * stm32l1xx_it.c is required.
  */
-void USART2_IRQHandler(void)
+void MIDI_UART_IRQ_HANDLER(void)
 {
     HAL_UART_IRQHandler(&hMIDI_UART);
 }
@@ -365,31 +366,31 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    if (huart->Instance == USART2)
+    if (huart->Instance == MIDI_UART_INSTANCE)
     {
-        __HAL_RCC_USART2_CLK_ENABLE();
+        MIDI_UART_CLK_ENABLE();
         __HAL_RCC_GPIOA_CLK_ENABLE();
 
-        GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_3;
+        GPIO_InitStruct.Pin = MIDI_UART_GPIO_PINS;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
         GPIO_InitStruct.Pull = GPIO_NOPULL;
         GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-        GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-        HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+        GPIO_InitStruct.Alternate = MIDI_UART_GPIO_AF;
+        HAL_GPIO_Init(MIDI_UART_GPIO_PORT, &GPIO_InitStruct);
 
-        HAL_NVIC_SetPriority(USART2_IRQn, 1, 0);
-        HAL_NVIC_EnableIRQ(USART2_IRQn);
+        HAL_NVIC_SetPriority(MIDI_UART_IRQn, 1, 0);
+        HAL_NVIC_EnableIRQ(MIDI_UART_IRQn);
     }
 }
 
 void HAL_UART_MspDeInit(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART2)
+    if (huart->Instance == MIDI_UART_INSTANCE)
     {
-        __HAL_RCC_USART2_CLK_DISABLE();
+        MIDI_UART_CLK_DISABLE();
 
-        HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2 | GPIO_PIN_3);
+        HAL_GPIO_DeInit(MIDI_UART_GPIO_PORT, MIDI_UART_GPIO_PINS);
 
-        HAL_NVIC_DisableIRQ(USART2_IRQn);
+        HAL_NVIC_DisableIRQ(MIDI_UART_IRQn);
     }
 }
