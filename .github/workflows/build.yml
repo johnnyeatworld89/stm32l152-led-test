@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # zum Aktualisieren des Releases "latest"
 
     steps:
 
@@ -45,3 +47,17 @@ jobs:
         path: |
           firmware.bin
           firmware.hex
+
+    # Festes Release "latest": firmware.bin ungepackt unter immer gleicher URL
+    # https://github.com/<owner>/<repo>/releases/download/latest/firmware.bin
+    - name: Publish firmware to release "latest"
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git tag -f latest
+        git push -f origin refs/tags/latest
+        gh release view latest >/dev/null 2>&1 || \
+          gh release create latest --title "Aktuelle Firmware" --notes "" --latest
+        gh release upload latest firmware.bin firmware.hex --clobber
+        gh release edit latest --latest \
+          --notes "Automatisch gebaut aus ${GITHUB_SHA::7} ($(date -u '+%Y-%m-%d %H:%M UTC'))"
