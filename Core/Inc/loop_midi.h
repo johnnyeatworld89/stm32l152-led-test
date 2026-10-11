@@ -1,0 +1,179 @@
+#ifndef LOOP_MIDI_H
+#define LOOP_MIDI_H
+
+#include <stdint.h>
+
+/* -------------------------------------------------------------------------- */
+/* MIDI control of the effect devices in the loops                            */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Every loop can have its own MIDI channel and up to
+ * LOOP_MIDI_MAX_GROUPS "On/Bypass" groups. A group holds up to
+ * LOOP_MIDI_MAX_SWITCHES switches of the effect device. A switch is
+ * defined by two Control Change messages:
+ *
+ *   On/Off:  first message switches on, second switches off
+ *   Toggle:  both messages are the same, every message toggles
+ *
+ * Within a group at most one switch is on (like the exclusive footswitches
+ * of a multi effect). Several groups can be on at the same time. The loop
+ * is active while at least one group is on.
+ *
+ * Receiving (effect device -> loop):
+ *   On of a switch        the group is on with this switch
+ *   Off of a switch       the group is off, if this switch was the one on
+ *                         (or none was known to be on)
+ *   Toggle of a switch    the same toggle twice in a row switches the
+ *                         group off, otherwise the group is on with it
+ *
+ * Sending (loop switched by the router, e.g. preset load -> effect device):
+ *   loop on:   the groups that were on when the loop was switched off get
+ *              the On (or Toggle) of their last switch. If nothing is
+ *              known yet, group 1 gets the On of its first switch.
+ *   loop off:  every group that is on gets the Off (or Toggle) of its
+ *              switch.
+ */
+
+#define LOOP_MIDI_MAX_LOOPS          31U
+#define LOOP_MIDI_MAX_GROUPS          8U
+#define LOOP_MIDI_MAX_SWITCHES        8U
+#define LOOP_MIDI_MAX_MESSAGES       (2U * LOOP_MIDI_MAX_SWITCHES)
+
+/*
+ * Messages that come back within this time after they were sent are
+ * taken as an echo (MIDI OUT wired back to MIDI IN, MIDI thru of the
+ * effect devices) and ignored.
+ */
+#define LOOP_MIDI_ECHO_TIME_MS      200U
+
+typedef struct
+{
+    uint8_t controller;     /* 0 to 127 */
+    uint8_t value;          /* 0 to 127 */
+
+} LoopMidiMessage;
+
+/*
+ * Messages 2n and 2n+1 form switch n. While editing, the number of
+ * messages can be odd (the Off of the last switch is still missing).
+ * LoopMidi_StoreConfig completes such a switch as Toggle.
+ */
+typedef struct
+{
+    uint8_t messageCount;
+    LoopMidiMessage messages[LOOP_MIDI_MAX_MESSAGES];
+
+} LoopMidiGroup;
+
+typedef struct
+{
+    uint8_t loopId;         /* item id of the loop, 0 = unused */
+    uint8_t channel;        /* 0 to 15 (= MIDI channel 1 to 16) */
+    uint8_t groupCount;
+    LoopMidiGroup groups[LOOP_MIDI_MAX_GROUPS];
+
+} LoopMidiConfig;
+
+typedef enum
+{
+    LOOP_MIDI_OK = 0,
+    LOOP_MIDI_ERR_FULL,
+    LOOP_MIDI_ERR_WRITE
+
+} LoopMidiStatus;
+
+
+/* Reads the configuration from the EEPROM. Call once at start-up. */
+void LoopMidi_Init(void);
+
+/*
+ * Copies the configuration of a loop into config. A loop without
+ * configuration gets channel 1 and no groups.
+ */
+void LoopMidi_GetConfig(
+    uint8_t loopId,
+    LoopMidiConfig *config
+);
+
+/*
+ * Replaces the configuration of config->loopId and stores all
+ * configurations in the EEPROM (blocks while writing). Groups without
+ * messages are removed, an odd last message becomes a Toggle.
+ * The switching state of this loop is reset.
+ *
+ * LOOP_MIDI_ERR_FULL: no free loop entry or the EEPROM block is too
+ * small. Nothing was changed.
+ */
+LoopMidiStatus LoopMidi_StoreConfig(
+    const LoopMidiConfig *config
+);
+
+/*
+ * Returns 1 if the configuration with this content would still fit
+ * into the EEPROM block (used while editing).
+ */
+uint8_t LoopMidi_ConfigFits(
+    const LoopMidiConfig *config
+);
+
+/* Number of switches of a group (an incomplete one counts). */
+uint8_t LoopMidi_SwitchCount(
+    const LoopMidiGroup *group
+);
+
+/* Returns 1 if both messages of the switch are the same. */
+uint8_t LoopMidi_SwitchIsToggle(
+    const LoopMidiGroup *group,
+    uint8_t switchIndex
+);
+
+/*
+ * Returns 1 if the message is used by any loop or is an echo of a
+ * message sent shortly before. Does not change anything.
+ */
+uint8_t LoopMidi_IsAssigned(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
+/*
+ * Returns 1 and forgets the entry if the message is an echo of a
+ * message sent within LOOP_MIDI_ECHO_TIME_MS.
+ */
+uint8_t LoopMidi_ConsumeEcho(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
+/*
+ * Applies a received message to the groups of one loop.
+ *
+ * Returns -1 if the message does not belong to this loop, otherwise
+ * the new state of the loop (0 = all groups off, 1 = a group is on).
+ */
+int8_t LoopMidi_Receive(
+    uint8_t loopId,
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
+/*
+ * The loop was switched by the router: sends the messages that put the
+ * effect device into the same state (see above). Does nothing for a
+ * loop without groups.
+ */
+void LoopMidi_SetLoopState(
+    uint8_t loopId,
+    uint8_t active
+);
+
+/* Returns 1 if the loop has at least one group. */
+uint8_t LoopMidi_HasGroups(
+    uint8_t loopId
+);
+
+#endif

@@ -4,6 +4,8 @@
 #include "preset_store.h"
 #include "ui.h"
 
+#include <stddef.h>
+
 /* -------------------------------------------------------------------------- */
 /* Event queue                                                                */
 /* -------------------------------------------------------------------------- */
@@ -11,8 +13,7 @@
 typedef enum
 {
     EVENT_BANK = 1U,
-    EVENT_PRESET,
-    EVENT_SAVE_ARM
+    EVENT_CONTROL_CHANGE
 
 } EventType;
 
@@ -25,7 +26,9 @@ _Static_assert(
 typedef struct
 {
     uint8_t type;
-    uint8_t value;      /* bank (0 to 63) or slot (0 to 23) */
+    uint8_t channel;
+    uint8_t data1;      /* bank (0 to 63) or controller */
+    uint8_t data2;      /* value of a Control Change */
 
 } Event;
 
@@ -36,7 +39,7 @@ typedef struct
  *
  * Size must be a power of two and at most 128.
  */
-#define EVENT_QUEUE_SIZE      16U
+#define EVENT_QUEUE_SIZE      32U
 #define EVENT_QUEUE_MASK      (EVENT_QUEUE_SIZE - 1U)
 
 static volatile Event eventQueue[EVENT_QUEUE_SIZE];
@@ -47,7 +50,11 @@ static volatile uint8_t eventTail = 0U;
 volatile uint8_t debugMidiPresetOverflows = 0U;
 
 
-static void Queue_Push(uint8_t type, uint8_t value)
+static void Queue_Push(
+    uint8_t type,
+    uint8_t channel,
+    uint8_t data1,
+    uint8_t data2)
 {
     uint8_t head = eventHead;
     uint8_t next = (uint8_t)((head + 1U) & EVENT_QUEUE_MASK);
@@ -63,7 +70,9 @@ static void Queue_Push(uint8_t type, uint8_t value)
     }
 
     eventQueue[head].type = type;
-    eventQueue[head].value = value;
+    eventQueue[head].channel = channel;
+    eventQueue[head].data1 = data1;
+    eventQueue[head].data2 = data2;
     eventHead = next;
 }
 
@@ -78,7 +87,9 @@ static uint8_t Queue_Pop(Event *event)
     }
 
     event->type = eventQueue[tail].type;
-    event->value = eventQueue[tail].value;
+    event->channel = eventQueue[tail].channel;
+    event->data1 = eventQueue[tail].data1;
+    event->data2 = eventQueue[tail].data2;
     eventTail = (uint8_t)((tail + 1U) & EVENT_QUEUE_MASK);
 
     return 1U;
@@ -106,36 +117,21 @@ void MidiPresets_OnProgramChange(
         return;
     }
 
-    Queue_Push(EVENT_BANK, program);
+    Queue_Push(EVENT_BANK, channel, program, 0U);
 }
 
 
+/*
+ * Control Changes are queued unfiltered: whether a message belongs to a
+ * loop (loop_midi.h) or to the presets is decided in the main loop,
+ * where the loop configuration may be read and changed.
+ */
 void MidiPresets_OnControlChange(
     uint8_t channel,
     uint8_t controller,
     uint8_t value)
 {
-    (void)value;    /* every value counts */
-
-    if (!Channel_Matches(channel))
-    {
-        return;
-    }
-
-    if (controller == MIDI_PRESETS_CC_SAVE)
-    {
-        Queue_Push(EVENT_SAVE_ARM, 0U);
-        return;
-    }
-
-    if (controller < MIDI_PRESETS_CC_FIRST ||
-        controller >= (MIDI_PRESETS_CC_FIRST + PRESET_SLOTS_PER_BANK))
-    {
-        return;
-    }
-
-    Queue_Push(EVENT_PRESET,
-               (uint8_t)(controller - MIDI_PRESETS_CC_FIRST));
+    Queue_Push(EVENT_CONTROL_CHANGE, channel, controller, value);
 }
 
 
@@ -183,8 +179,9 @@ void MidiPresets_Process(void)
 
     /*
      * Several Control Changes in a row are merged: only the last one
-     * loads a preset. A Program Change or CC0 in between has to see the
-     * preset before it, so a pending preset is loaded first.
+     * loads a preset. A Program Change, CC0 or a loop message in between
+     * has to see the preset before it, so a pending preset is loaded
+     * first.
      *
      * While saving is armed, the next preset number does not load but
      * saves. The events are handled in the order they arrived.
@@ -193,18 +190,48 @@ void MidiPresets_Process(void)
 
     while (Queue_Pop(&event))
     {
-        if (event.type == EVENT_PRESET)
-        {
-            if (UI_SaveArmed())
-            {
-                UI_SavePresetFromMidi(event.value);
-            }
-            else
-            {
-                pendingSlot = event.value;
-            }
+        /*
+         * A Control Change that belongs to a loop (or is learned in its
+         * MIDI menu) is not used for the presets.
+         */
+        uint8_t loopMessage = 0U;
 
-            continue;
+        if (event.type == EVENT_CONTROL_CHANGE)
+        {
+            loopMessage = UI_LoopMidiClaims(
+                event.channel, event.data1, event.data2);
+
+            if (!loopMessage)
+            {
+                if (!Channel_Matches(event.channel))
+                {
+                    continue;
+                }
+
+                if (event.data1 != MIDI_PRESETS_CC_SAVE)
+                {
+                    if (event.data1 < MIDI_PRESETS_CC_FIRST ||
+                        event.data1 >= (MIDI_PRESETS_CC_FIRST +
+                                        PRESET_SLOTS_PER_BANK))
+                    {
+                        continue;
+                    }
+
+                    uint8_t slot =
+                        (uint8_t)(event.data1 - MIDI_PRESETS_CC_FIRST);
+
+                    if (UI_SaveArmed())
+                    {
+                        UI_SavePresetFromMidi(slot);
+                    }
+                    else
+                    {
+                        pendingSlot = slot;
+                    }
+
+                    continue;
+                }
+            }
         }
 
         if (pendingSlot >= 0)
@@ -213,13 +240,18 @@ void MidiPresets_Process(void)
             pendingSlot = -1;
         }
 
-        if (event.type == EVENT_SAVE_ARM)
+        if (event.type == EVENT_BANK)
         {
-            UI_SaveArmToggle();
+            UI_SelectBank(event.data1);
+        }
+        else if (loopMessage)
+        {
+            UI_LoopMidiControlChange(
+                event.channel, event.data1, event.data2);
         }
         else
         {
-            UI_SelectBank(event.value);
+            UI_SaveArmToggle();
         }
     }
 

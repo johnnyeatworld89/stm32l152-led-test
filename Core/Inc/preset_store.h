@@ -31,6 +31,21 @@
  */
 #define PRESET_LAYOUT_MAX_BYTES      192U
 
+/*
+ * Loop status stored with a preset: bit n = n-th loop (see ui.c),
+ * at most 31 loops. PRESET_LOOP_STATUS_VALID marks a stored status;
+ * presets saved before the loop status existed have 0 and leave the
+ * loops unchanged when loaded.
+ */
+#define PRESET_LOOP_STATUS_VALID     0x80000000UL
+#define PRESET_LOOP_STATUS_MAX_LOOPS 31U
+
+/*
+ * Size of the configuration block behind the preset records (loop
+ * MIDI settings, see loop_midi.c).
+ */
+#define PRESET_CONFIG_MAX_BYTES      952U
+
 typedef enum
 {
     PRESET_STORE_OK = 0,
@@ -77,7 +92,8 @@ PresetStoreStatus PresetStore_SavePreset(
     uint8_t slot,
     const char *name,
     const uint8_t *layout,
-    uint8_t layoutLength
+    uint8_t layoutLength,
+    uint32_t loopStatus
 );
 
 /*
@@ -90,6 +106,16 @@ PresetStoreStatus PresetStore_ReadLayout(
     uint8_t slot,
     uint8_t *layout,
     uint8_t *length
+);
+
+/*
+ * Reads the loop status of a preset (see PRESET_LOOP_STATUS_VALID).
+ * Returns PRESET_STORE_ERR_NOT_FOUND for an empty slot.
+ */
+PresetStoreStatus PresetStore_ReadLoopStatus(
+    uint8_t bank,
+    uint8_t slot,
+    uint32_t *loopStatus
 );
 
 /*
@@ -118,6 +144,26 @@ PresetStoreStatus PresetStore_SetBankName(
 PresetStoreStatus PresetStore_DeletePreset(
     uint8_t bank,
     uint8_t slot
+);
+
+/*
+ * Configuration block (independent of the presets).
+ *
+ * ReadConfig copies the stored block into data (at least
+ * PRESET_CONFIG_MAX_BYTES bytes). Returns PRESET_STORE_ERR_NOT_FOUND if
+ * nothing valid is stored.
+ *
+ * WriteConfig replaces the block. Blocks while the EEPROM is written.
+ * A power loss while writing leaves no valid block.
+ */
+PresetStoreStatus PresetStore_ReadConfig(
+    uint8_t *data,
+    uint16_t *length
+);
+
+PresetStoreStatus PresetStore_WriteConfig(
+    const uint8_t *data,
+    uint16_t length
 );
 
 #endif

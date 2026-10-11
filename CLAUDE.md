@@ -12,16 +12,26 @@ Sprache mit dem Nutzer: Deutsch.
   Opto-Eingang H11L1, TRS Typ A.
 
 ## Dateien
-- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, DELETE_CONFIRM), Namens-Editor, Footer mit Bankanzeige.
-- `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): max. 30 Records à 480 Byte (220 belegt, Rest reserviert für Schaltplan/Loop-Status), 64 Banknamen à 16 Byte, Gültig-Marker wird zuletzt geschrieben.
+- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
+- `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (220 belegt inkl. Loop-Status-Bitmap an Offset 216, Rest reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
 - `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`.
-- `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop.
-- `font5x7.c` – Font: kein `.`-Glyph, Kleinbuchstaben werden groß dargestellt, unbekannte Zeichen = Kästchen.
+- `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop. Queue enthält rohe CCs; Zuordnung Loop/Preset erst in der Main-Loop.
+- `loop_midi.c/.h` – MIDI-Steuerung der Effektgeräte in den Loops: Konfiguration (Kanal, On/Bypass-Gruppen), Gruppenlogik, Senden, Echo-Filter, EEPROM-Serialisierung.
+- `font5x7.c` – Font: kein `.`-Glyph (`,` vorhanden), Kleinbuchstaben werden groß dargestellt, unbekannte Zeichen = Kästchen.
 
 ## Presets
 - Bänke 0–63, je 24 Presets (Anzeige "01: name"), insgesamt höchstens 30 im EEPROM.
 - Layout-Blob: [Anzahl] + je Eintrag (id u8, order i8, lane i8). Auto-Nodes werden nicht gespeichert, beim Laden neu berechnet. `UI_PresetApplyLayout` validiert.
 - Manage Presets: Rename bank, Load / Rename / Delete (Copy bewusst weggelassen, später).
+
+## Loop-MIDI (Effektgeräte)
+- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "On/Bypass n", "add On/Bypass".
+- Je Loop max. 8 Gruppen à max. 8 Schalter; Schalter = 2 CC-Meldungen (On/Off, gleich = Toggle). In einer Gruppe max. ein Schalter an, Loop aktiv solange eine Gruppe an.
+- Empfang: On -> Gruppe an; Off nur wirksam, wenn dieser Schalter an war; gleicher Toggle zweimal -> Gruppe aus. Vom Gerät gemeldet = `ACTIVE_CONFIRMED`.
+- Senden nur bei Zustandswechsel durch den Router (Preset laden): an = letzte Schalter der zuletzt aktiven Gruppen (sonst Gruppe 1 Schalter 1), aus = Off der aktiven Schalter.
+- Eingabe per Encoder (CC, dann Wert; "empty" löscht den Schalter) oder MIDI Learn (Kette: nach gelernter Meldung wartet die nächste "empty"-Zeile). Einzelne Meldung ohne Off wird beim Verlassen zum Toggle. Gespeichert wird beim Verlassen der Midi-Seite (auch per Menü-Taste).
+- Loop-CCs haben Vorrang vor Preset-CCs (gleicher Kanal). Echo-Filter: eigene Loop-Meldungen innerhalb 200 ms werden ignoriert. Loop-MIDI wird auch bei offenem Menü verarbeitet (ohne Neuzeichnen).
+- Presets speichern den Loop-Status (Bit n = n-ter Loop in `uiItems`, max. 31, Bit 31 = gültig). Alte Presets (0) lassen die Loops unverändert.
 
 ## MIDI-Protokoll
 - Empfang: Program Change = Bank (0–63); CC1–24 = Preset laden (Wert egal).
@@ -36,7 +46,9 @@ Sprache mit dem Nutzer: Deutsch.
 - Host-Tests (gcc, Stub-HAL) sind möglich; Stand: Alles bisher nur teilweise auf dem Board geprüft (MIDI-Empfang/Senden bestätigt). MIDI-Speichern per CC0 ist nur am PC getestet.
 
 ## Offen / nächste Schritte
-- Schaltplan + Loop-Status im Preset (Platz reserviert), ADG2188-Treiber / `routing.c`.
+- Schaltplan im Preset (Platz reserviert), ADG2188-Treiber / `routing.c`.
+- Loop manuell ein/aus schalten (bisher nur per MIDI vom Effektgerät oder per Preset).
+- Loop-MIDI am Board testen (bisher nur Host-Tests).
 - Copy-Funktion in Manage Presets.
 - MIDI-Empfang per DMA statt Byte-Interrupt.
 - Externer Speicher für 64×24 Presets (EEPROM reicht nur für 30).
