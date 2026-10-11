@@ -69,9 +69,9 @@ static const uint8_t Font5x7_Numbers[10][5] =
 /*
  * Sonderzeichen
  *
- * ?  -  _  :  /  (  )  #
+ * ?  -  _  :  /  (  )  #  ,
  */
-static const uint8_t Font5x7_Symbols[8][5] =
+static const uint8_t Font5x7_Symbols[9][5] =
 {
     /* ? */ {0x03, 0x01, 0x11, 0x0E, 0x04},
     /* - */ {0x08, 0x08, 0x08, 0x08, 0x08},
@@ -80,7 +80,8 @@ static const uint8_t Font5x7_Symbols[8][5] =
     /* / */ {0x10, 0x08, 0x04, 0x02, 0x01},
     /* ( */ {0x0E, 0x11, 0x11, 0x00, 0x00},
     /* ) */ {0x00, 0x00, 0x11, 0x11, 0x0E},
-    /* # */ {0x0A, 0x1F, 0x0A, 0x1F, 0x0A}
+    /* # */ {0x0A, 0x1F, 0x0A, 0x1F, 0x0A},
+    /* , */ {0x00, 0x50, 0x30, 0x00, 0x00}
 };
 
 
@@ -129,6 +130,7 @@ static const uint8_t *Font5x7_GetBitmap(char c)
         case '(': return Font5x7_Symbols[5];
         case ')': return Font5x7_Symbols[6];
         case '#': return Font5x7_Symbols[7];
+        case ',': return Font5x7_Symbols[8];
         default:  return NULL;
     }
 }

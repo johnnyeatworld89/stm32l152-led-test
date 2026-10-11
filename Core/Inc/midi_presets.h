@@ -26,6 +26,10 @@
  * Outgoing, whenever a preset is saved or loaded (menu or MIDI):
  *   Program Change (bank), then Control Change (preset number, value 127)
  *
+ * Loops: a Control Change that is assigned to a loop (see loop_midi.h,
+ * on the channel of that loop) switches the loop and is not used for
+ * the presets, even if it is on the preset channel.
+ *
  * Feedback loops: a Control Change for a preset whose layout is already
  * active does nothing and sends nothing. If MIDI OUT comes back into
  * MIDI IN, the returning messages ask for the state the device is

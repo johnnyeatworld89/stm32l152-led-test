@@ -321,4 +321,24 @@ uint8_t UI_SavePresetFromMidi(
     uint8_t slot
 );
 
+/*
+ * MIDI-Steuerung der Loops (siehe loop_midi.h).
+ *
+ * UI_LoopMidiClaims prueft, ob eine Control Change zu einem Loop gehoert
+ * (oder gerade im Midi-Menue eines Loops gelernt wird). Solche Meldungen
+ * werden nicht fuer die Presets verwendet. UI_LoopMidiControlChange
+ * verarbeitet sie: Lernen im Menue, sonst Ein-/Ausschalten der Loops.
+ */
+uint8_t UI_LoopMidiClaims(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
+void UI_LoopMidiControlChange(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
 #endif

@@ -14,6 +14,7 @@
 #include "midi.h"
 
 #include "midi_presets.h"
+#include "loop_midi.h"
 
 /* -------------------------------------------------------------------------- */
 /* Configuration                                                              */
@@ -1029,6 +1030,11 @@ int main(void)
 
     ST7735_SetRotation(1);
 
+
+    /*
+     * MIDI settings of the loops (data EEPROM), before the UI uses them.
+     */
+    LoopMidi_Init();
 
     UI_Init();
 

@@ -9,6 +9,7 @@
 /*
  * 0x0000  bank names     64 * 16 bytes   (reserved, see GetBankName)
  * 0x0400  preset records 30 * 480 bytes
+ * 0x3C40  config block   960 bytes       (loop MIDI settings)
  */
 #define STORE_EEPROM_BASE            0x08080000UL
 #define STORE_EEPROM_SIZE            16384UL
@@ -31,7 +32,7 @@
 #define RECORD_OFFSET_INFO           4U     /* version, layout length   */
 #define RECORD_OFFSET_NAME           8U
 #define RECORD_OFFSET_LAYOUT         24U
-#define RECORD_OFFSET_LOOP_STATUS    216U   /* placeholder, written as 0 */
+#define RECORD_OFFSET_LOOP_STATUS    216U   /* see PRESET_LOOP_STATUS_VALID */
 #define RECORD_USED_SIZE             220U
 #define RECORD_USED_WORDS            (RECORD_USED_SIZE / 4U)
 
@@ -56,6 +57,27 @@ _Static_assert(
     (STORE_RECORDS_OFFSET +
      (PRESET_MAX_RECORDS * RECORD_SIZE)) <= STORE_EEPROM_SIZE,
     "preset records do not fit into the data EEPROM");
+
+/*
+ * Config block behind the records:
+ *   word 0   magic (16 bit), version, 0     valid marker, written last
+ *   word 1   length (16 bit), checksum (16 bit, sum of the data bytes)
+ *   data     PRESET_CONFIG_MAX_BYTES
+ */
+#define STORE_CONFIG_OFFSET \
+    (STORE_RECORDS_OFFSET + (PRESET_MAX_RECORDS * RECORD_SIZE))
+#define STORE_CONFIG_HEADER_SIZE     8UL
+#define STORE_CONFIG_MAGIC           0x434DU
+#define STORE_CONFIG_VERSION         1U
+
+_Static_assert(
+    (STORE_CONFIG_OFFSET + STORE_CONFIG_HEADER_SIZE +
+     PRESET_CONFIG_MAX_BYTES) <= STORE_EEPROM_SIZE,
+    "config block does not fit into the data EEPROM");
+
+_Static_assert(
+    (PRESET_CONFIG_MAX_BYTES % 4U) == 0U,
+    "config block size must be a multiple of 4");
 
 
 /* -------------------------------------------------------------------------- */
@@ -299,7 +321,8 @@ PresetStoreStatus PresetStore_SavePreset(
     uint8_t slot,
     const char *name,
     const uint8_t *layout,
-    uint8_t layoutLength)
+    uint8_t layoutLength,
+    uint32_t loopStatus)
 {
     if (bank >= PRESET_BANK_COUNT ||
         slot >= PRESET_SLOTS_PER_BANK ||
@@ -349,6 +372,8 @@ PresetStoreStatus PresetStore_SavePreset(
     }
 
     memcpy(&bytes[RECORD_OFFSET_LAYOUT], layout, layoutLength);
+
+    words[RECORD_OFFSET_LOOP_STATUS / 4U] = loopStatus;
 
     /*
      * Write sequence: invalidate the old record (word 0 = 0), write
@@ -507,6 +532,33 @@ PresetStoreStatus PresetStore_ReadLayout(
 }
 
 
+PresetStoreStatus PresetStore_ReadLoopStatus(
+    uint8_t bank,
+    uint8_t slot,
+    uint32_t *loopStatus)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        loopStatus == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    *loopStatus = *(const volatile uint32_t *)(
+        Store_RecordAddress((uint8_t)index) +
+        RECORD_OFFSET_LOOP_STATUS);
+
+    return PRESET_STORE_OK;
+}
+
+
 PresetStoreStatus PresetStore_SetPresetName(
     uint8_t bank,
     uint8_t slot,
@@ -591,6 +643,142 @@ PresetStoreStatus PresetStore_DeletePreset(
 
     if (status != HAL_OK ||
         Store_RecordIsValid((uint8_t)index, NULL, NULL))
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    return PRESET_STORE_OK;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Config block                                                               */
+/* -------------------------------------------------------------------------- */
+
+static uint16_t Store_Checksum(
+    const uint8_t *data,
+    uint16_t length)
+{
+    uint16_t sum = 0U;
+
+    for (uint16_t i = 0U; i < length; i++)
+    {
+        sum = (uint16_t)(sum + data[i]);
+    }
+
+    return sum;
+}
+
+
+PresetStoreStatus PresetStore_ReadConfig(
+    uint8_t *data,
+    uint16_t *length)
+{
+    if (data == NULL || length == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    const volatile uint8_t *block =
+        (const volatile uint8_t *)(STORE_EEPROM_BASE +
+                                   STORE_CONFIG_OFFSET);
+
+    uint16_t magic =
+        (uint16_t)(block[0] | ((uint16_t)block[1] << 8));
+    uint16_t blockLength =
+        (uint16_t)(block[4] | ((uint16_t)block[5] << 8));
+    uint16_t checksum =
+        (uint16_t)(block[6] | ((uint16_t)block[7] << 8));
+
+    if (magic != STORE_CONFIG_MAGIC ||
+        block[2] != STORE_CONFIG_VERSION ||
+        blockLength > PRESET_CONFIG_MAX_BYTES)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    for (uint16_t i = 0U; i < blockLength; i++)
+    {
+        data[i] = block[STORE_CONFIG_HEADER_SIZE + i];
+    }
+
+    if (Store_Checksum(data, blockLength) != checksum)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    *length = blockLength;
+
+    return PRESET_STORE_OK;
+}
+
+
+PresetStoreStatus PresetStore_WriteConfig(
+    const uint8_t *data,
+    uint16_t length)
+{
+    if ((data == NULL && length > 0U) ||
+        length > PRESET_CONFIG_MAX_BYTES)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    uint32_t address =
+        STORE_EEPROM_BASE + STORE_CONFIG_OFFSET;
+
+    uint32_t header0 =
+        (uint32_t)STORE_CONFIG_MAGIC |
+        ((uint32_t)STORE_CONFIG_VERSION << 16);
+
+    uint32_t header1 =
+        (uint32_t)length |
+        ((uint32_t)Store_Checksum(data, length) << 16);
+
+    if (HAL_FLASHEx_DATAEEPROM_Unlock() != HAL_OK)
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    /*
+     * Same sequence as for the records: invalidate, write the data,
+     * write the valid marker last. Words are assembled byte by byte,
+     * so data does not need to be aligned.
+     */
+    HAL_StatusTypeDef status = Store_WriteWord(address, 0U);
+
+    for (uint16_t offset = 0U;
+         offset < length && status == HAL_OK;
+         offset = (uint16_t)(offset + 4U))
+    {
+        uint32_t word = 0U;
+
+        for (uint8_t i = 0U;
+             i < 4U && (offset + i) < length;
+             i++)
+        {
+            word |= (uint32_t)data[offset + i] << (8U * i);
+        }
+
+        status = Store_WriteWord(
+            address + STORE_CONFIG_HEADER_SIZE + offset, word);
+    }
+
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(address + 4UL, header1);
+    }
+
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(address, header0);
+    }
+
+    HAL_FLASHEx_DATAEEPROM_Lock();
+
+    if (status != HAL_OK ||
+        (length > 0U &&
+         memcmp((const void *)(address + STORE_CONFIG_HEADER_SIZE),
+                data, length) != 0))
     {
         return PRESET_STORE_ERR_WRITE;
     }
