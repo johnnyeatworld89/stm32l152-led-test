@@ -50,6 +50,24 @@
 #define PRESET_LOOP_PROGRAM_VALID    0x80U
 
 /*
+ * On/Bypass state of the loops with MIDI groups (see loop_midi.h) stored
+ * with a preset. Bit n of mask = n-th loop (as for the loop status) has
+ * a state, state[n] holds 4 bits per group (bits 4g to 4g+3 = group g):
+ * 0 = group off, k = switch k (1 to 8) on. At most
+ * PRESET_LOOP_STATE_MAX_LOOPS loops are stored (the lowest bits of mask).
+ * Presets saved before the states existed have mask 0, their loops are
+ * switched by the loop status as before.
+ */
+#define PRESET_LOOP_STATE_MAX_LOOPS  16U
+
+typedef struct
+{
+    uint32_t mask;
+    uint32_t state[PRESET_LOOP_STATUS_MAX_LOOPS];
+
+} PresetLoopStates;
+
+/*
  * Additional MIDI messages of a preset (edited in Manage Presets), sent
  * when the preset is loaded. A message is stored as it is sent: status
  * byte (0xB0 | channel = Control Change, 0xC0 | channel = Program
@@ -120,7 +138,8 @@ PresetStoreStatus PresetStore_SavePreset(
     const uint8_t *layout,
     uint8_t layoutLength,
     uint32_t loopStatus,
-    const uint8_t *loopPrograms     /* PRESET_LOOP_PROGRAM_BYTES or NULL */
+    const uint8_t *loopPrograms,    /* PRESET_LOOP_PROGRAM_BYTES or NULL */
+    const PresetLoopStates *loopStates      /* or NULL */
 );
 
 /*
@@ -158,6 +177,16 @@ PresetStoreStatus PresetStore_ReadLoopPrograms(
 );
 
 /*
+ * Reads the On/Bypass states of a preset (mask 0 = none stored).
+ * Returns PRESET_STORE_ERR_NOT_FOUND for an empty slot.
+ */
+PresetStoreStatus PresetStore_ReadLoopStates(
+    uint8_t bank,
+    uint8_t slot,
+    PresetLoopStates *loopStates
+);
+
+/*
  * Reads the additional MIDI messages of a preset into messages (at
  * least PRESET_MIDI_MAX_MESSAGES entries) and their number into count.
  * Presets saved before the messages existed have none. Returns
@@ -171,16 +200,18 @@ PresetStoreStatus PresetStore_ReadMidiMessages(
 );
 
 /*
- * Replaces the loop programs (PRESET_LOOP_PROGRAM_BYTES) and the
- * additional MIDI messages of an existing preset. Layout, name and loop
- * status stay untouched. A power loss while writing leaves the preset
- * without programs or messages. Returns PRESET_STORE_ERR_NOT_FOUND for
- * an empty slot.
+ * Replaces loop status, loop programs (PRESET_LOOP_PROGRAM_BYTES),
+ * On/Bypass states and the additional MIDI messages of an existing
+ * preset. Layout and name stay untouched. A power loss while writing
+ * leaves the preset without programs, states or messages. Returns
+ * PRESET_STORE_ERR_NOT_FOUND for an empty slot.
  */
 PresetStoreStatus PresetStore_WriteMidi(
     uint8_t bank,
     uint8_t slot,
+    uint32_t loopStatus,
     const uint8_t *loopPrograms,
+    const PresetLoopStates *loopStates,
     const PresetMidiMessage *messages,
     uint8_t count
 );

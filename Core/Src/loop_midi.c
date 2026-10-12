@@ -813,6 +813,87 @@ void LoopMidi_SetLoopState(
 }
 
 
+uint32_t LoopMidi_GetGroupState(uint8_t loopId)
+{
+    int16_t index = Config_Find(loopId);
+    uint32_t state = 0UL;
+
+    if (index < 0)
+    {
+        return 0UL;
+    }
+
+    for (uint8_t g = 0U; g < loopConfigs[index].groupCount; g++)
+    {
+        int8_t k = loopStates[index].activeSwitch[g];
+
+        if (k >= 0)
+        {
+            state |= ((uint32_t)k + 1UL) << (4U * g);
+        }
+    }
+
+    return state;
+}
+
+
+int8_t LoopMidi_ApplyGroupState(
+    uint8_t loopId,
+    uint32_t wanted)
+{
+    int16_t index = Config_Find(loopId);
+
+    if (index < 0 || loopConfigs[index].groupCount == 0U)
+    {
+        return -1;
+    }
+
+    const LoopMidiConfig *config = &loopConfigs[index];
+    LoopMidiState *state = &loopStates[index];
+    uint8_t maskBefore = State_ActiveMask((uint8_t)index);
+
+    for (uint8_t g = 0U; g < config->groupCount; g++)
+    {
+        const LoopMidiGroup *group = &config->groups[g];
+        int8_t target = (int8_t)((wanted >> (4U * g)) & 0x0FUL) - 1;
+        int8_t active = state->activeSwitch[g];
+
+        if (target == active ||
+            target >= (int8_t)LoopMidi_SwitchCount(group))
+        {
+            continue;
+        }
+
+        if (target >= 0)
+        {
+            Send_Message(
+                config->channel,
+                &group->messages[2U * (uint8_t)target]);
+
+            state->activeSwitch[g] = target;
+            state->lastSwitch[g] = target;
+        }
+        else
+        {
+            Send_Message(
+                config->channel,
+                &group->messages[(2U * (uint8_t)active) + 1U]);
+
+            state->activeSwitch[g] = -1;
+        }
+    }
+
+    uint8_t maskAfter = State_ActiveMask((uint8_t)index);
+
+    if (maskAfter == 0U && maskBefore != 0U)
+    {
+        state->restoreMask = maskBefore;
+    }
+
+    return (maskAfter != 0U) ? 1 : 0;
+}
+
+
 /* -------------------------------------------------------------------------- */
 /* Program Change                                                             */
 /* -------------------------------------------------------------------------- */

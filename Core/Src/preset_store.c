@@ -8,7 +8,7 @@
 
 /*
  * 0x0000  bank names     64 * 16 bytes   (reserved, see GetBankName)
- * 0x0400  preset records 30 * 480 bytes  (308 used, see RECORD_*)
+ * 0x0400  preset records 30 * 480 bytes  (380 used, see RECORD_*)
  * 0x3C40  config block   960 bytes       (loop MIDI settings)
  */
 #define STORE_EEPROM_BASE            0x08080000UL
@@ -38,7 +38,10 @@
 #define RECORD_OFFSET_MIDI_HEADER    256U   /* RECORD_MIDI_MARKER, count    */
 #define RECORD_OFFSET_MIDI           260U   /* PresetMidiMessage, 3 bytes   */
 #define RECORD_MIDI_MESSAGE_SIZE     3U
-#define RECORD_USED_SIZE             308U
+#define RECORD_OFFSET_STATE_MARKER   308U   /* RECORD_STATE_MARKER          */
+#define RECORD_OFFSET_STATE_MASK     312U   /* loops with a stored state    */
+#define RECORD_OFFSET_STATES         316U   /* one word per loop in mask    */
+#define RECORD_USED_SIZE             380U
 #define RECORD_USED_WORDS            (RECORD_USED_SIZE / 4U)
 
 #define RECORD_MAGIC                 0x5052U
@@ -56,6 +59,9 @@
  */
 #define RECORD_MIDI_MARKER           0x0047534DUL
 #define RECORD_MIDI_MARKER_MASK      0x00FFFFFFUL
+
+/* Marks the On/Bypass states as written. */
+#define RECORD_STATE_MARKER          0x0054534CUL   /* "LST", 0 */
 
 _Static_assert(
     (RECORD_OFFSET_NAME + PRESET_NAME_LENGTH) ==
@@ -75,8 +81,13 @@ _Static_assert(
 _Static_assert(
     (RECORD_OFFSET_MIDI +
      (PRESET_MIDI_MAX_MESSAGES * RECORD_MIDI_MESSAGE_SIZE)) ==
+        RECORD_OFFSET_STATE_MARKER,
+    "MIDI message block size does not match state offset");
+
+_Static_assert(
+    (RECORD_OFFSET_STATES + (4U * PRESET_LOOP_STATE_MAX_LOOPS)) ==
         RECORD_USED_SIZE,
-    "MIDI message block size does not match used record size");
+    "state block size does not match used record size");
 
 _Static_assert(
     RECORD_USED_SIZE <= RECORD_SIZE,
@@ -243,6 +254,40 @@ static uint8_t Store_MidiMessageIsValid(
 }
 
 
+/*
+ * Writes marker, mask and the states of the (at most
+ * PRESET_LOOP_STATE_MAX_LOOPS lowest) loops in mask into the record
+ * image. NULL stores no states.
+ */
+static void Store_PackStates(
+    const PresetLoopStates *loopStates,
+    uint32_t *words)
+{
+    uint32_t mask = 0UL;
+    uint8_t count = 0U;
+
+    words[RECORD_OFFSET_STATE_MARKER / 4U] = RECORD_STATE_MARKER;
+
+    for (uint8_t n = 0U;
+         loopStates != NULL &&
+         n < PRESET_LOOP_STATUS_MAX_LOOPS &&
+         count < PRESET_LOOP_STATE_MAX_LOOPS;
+         n++)
+    {
+        if ((loopStates->mask & (1UL << n)) == 0UL)
+        {
+            continue;
+        }
+
+        mask |= (1UL << n);
+        words[(RECORD_OFFSET_STATES / 4U) + count] = loopStates->state[n];
+        count++;
+    }
+
+    words[RECORD_OFFSET_STATE_MASK / 4U] = mask;
+}
+
+
 static void Store_AppendUInt(
     char *buffer,
     uint8_t *position,
@@ -377,7 +422,8 @@ PresetStoreStatus PresetStore_SavePreset(
     const uint8_t *layout,
     uint8_t layoutLength,
     uint32_t loopStatus,
-    const uint8_t *loopPrograms)
+    const uint8_t *loopPrograms,
+    const PresetLoopStates *loopStates)
 {
     if (bank >= PRESET_BANK_COUNT ||
         slot >= PRESET_SLOTS_PER_BANK ||
@@ -419,7 +465,7 @@ PresetStoreStatus PresetStore_SavePreset(
                 (uint8_t)index);
 
         for (uint16_t i = RECORD_OFFSET_MIDI_HEADER;
-             i < RECORD_USED_SIZE;
+             i < RECORD_OFFSET_STATE_MARKER;
              i++)
         {
             bytes[i] = record[i];
@@ -453,6 +499,8 @@ PresetStoreStatus PresetStore_SavePreset(
         memcpy(&bytes[RECORD_OFFSET_PROGRAMS], loopPrograms,
                PRESET_LOOP_PROGRAM_BYTES);
     }
+
+    Store_PackStates(loopStates, words);
 
     /*
      * Write sequence: invalidate the old record (word 0 = 0), write
@@ -679,6 +727,59 @@ PresetStoreStatus PresetStore_ReadLoopPrograms(
 }
 
 
+PresetStoreStatus PresetStore_ReadLoopStates(
+    uint8_t bank,
+    uint8_t slot,
+    PresetLoopStates *loopStates)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        loopStates == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    memset(loopStates, 0, sizeof(*loopStates));
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    uint32_t address = Store_RecordAddress((uint8_t)index);
+
+    if (*(const volatile uint32_t *)(
+            address + RECORD_OFFSET_STATE_MARKER) != RECORD_STATE_MARKER)
+    {
+        return PRESET_STORE_OK;
+    }
+
+    uint32_t mask = *(const volatile uint32_t *)(
+        address + RECORD_OFFSET_STATE_MASK);
+    uint8_t count = 0U;
+
+    for (uint8_t n = 0U;
+         n < PRESET_LOOP_STATUS_MAX_LOOPS &&
+         count < PRESET_LOOP_STATE_MAX_LOOPS;
+         n++)
+    {
+        if ((mask & (1UL << n)) == 0UL)
+        {
+            continue;
+        }
+
+        loopStates->mask |= (1UL << n);
+        loopStates->state[n] = *(const volatile uint32_t *)(
+            address + RECORD_OFFSET_STATES + (4UL * count));
+        count++;
+    }
+
+    return PRESET_STORE_OK;
+}
+
+
 PresetStoreStatus PresetStore_ReadMidiMessages(
     uint8_t bank,
     uint8_t slot,
@@ -737,7 +838,9 @@ PresetStoreStatus PresetStore_ReadMidiMessages(
 PresetStoreStatus PresetStore_WriteMidi(
     uint8_t bank,
     uint8_t slot,
+    uint32_t loopStatus,
     const uint8_t *loopPrograms,
+    const PresetLoopStates *loopStates,
     const PresetMidiMessage *messages,
     uint8_t count)
 {
@@ -766,14 +869,15 @@ PresetStoreStatus PresetStore_WriteMidi(
     }
 
     /*
-     * Image of the record from the program marker to the end of the
-     * used part.
+     * Image of the record from the loop status to the end of the used
+     * part.
      */
     uint32_t words[RECORD_USED_WORDS];
     uint8_t *bytes = (uint8_t *)words;
 
     memset(words, 0, sizeof(words));
 
+    words[RECORD_OFFSET_LOOP_STATUS / 4U] = loopStatus;
     words[RECORD_OFFSET_PROGRAM_MARKER / 4U] = RECORD_PROGRAM_MARKER;
     memcpy(&bytes[RECORD_OFFSET_PROGRAMS], loopPrograms,
            PRESET_LOOP_PROGRAM_BYTES);
@@ -791,8 +895,10 @@ PresetStoreStatus PresetStore_WriteMidi(
         bytes[offset + 2U] = messages[i].data2;
     }
 
+    Store_PackStates(loopStates, words);
+
     /*
-     * Write sequence: clear both markers, write the data, write the
+     * Write sequence: clear the markers, write the data, write the
      * markers last.
      */
     uint32_t address = Store_RecordAddress((uint8_t)index);
@@ -811,16 +917,31 @@ PresetStoreStatus PresetStore_WriteMidi(
             address + RECORD_OFFSET_MIDI_HEADER, 0U);
     }
 
-    for (uint16_t offset = RECORD_OFFSET_PROGRAMS;
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(
+            address + RECORD_OFFSET_STATE_MARKER, 0U);
+    }
+
+    for (uint16_t offset = RECORD_OFFSET_LOOP_STATUS;
          offset < RECORD_USED_SIZE && status == HAL_OK;
          offset = (uint16_t)(offset + 4U))
     {
-        if (offset == RECORD_OFFSET_MIDI_HEADER)
+        if (offset == RECORD_OFFSET_PROGRAM_MARKER ||
+            offset == RECORD_OFFSET_MIDI_HEADER ||
+            offset == RECORD_OFFSET_STATE_MARKER)
         {
             continue;
         }
 
         status = Store_WriteWord(address + offset, words[offset / 4U]);
+    }
+
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(
+            address + RECORD_OFFSET_STATE_MARKER,
+            words[RECORD_OFFSET_STATE_MARKER / 4U]);
     }
 
     if (status == HAL_OK)
@@ -840,9 +961,9 @@ PresetStoreStatus PresetStore_WriteMidi(
     HAL_FLASHEx_DATAEEPROM_Lock();
 
     if (status != HAL_OK ||
-        memcmp((const void *)(address + RECORD_OFFSET_PROGRAM_MARKER),
-               &bytes[RECORD_OFFSET_PROGRAM_MARKER],
-               RECORD_USED_SIZE - RECORD_OFFSET_PROGRAM_MARKER) != 0)
+        memcmp((const void *)(address + RECORD_OFFSET_LOOP_STATUS),
+               &bytes[RECORD_OFFSET_LOOP_STATUS],
+               RECORD_USED_SIZE - RECORD_OFFSET_LOOP_STATUS) != 0)
     {
         return PRESET_STORE_ERR_WRITE;
     }

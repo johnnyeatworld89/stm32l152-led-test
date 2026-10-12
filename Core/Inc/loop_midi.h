@@ -184,6 +184,32 @@ void LoopMidi_SetLoopState(
 );
 
 /*
+ * On/Bypass state of a loop for the presets: 4 bits per group (bits 4g
+ * to 4g+3 = group g), 0 = group off, k = switch k (1 to 8) on. A loop
+ * without groups returns 0.
+ */
+uint32_t LoopMidi_GetGroupState(
+    uint8_t loopId
+);
+
+/*
+ * Puts the effect device of the loop into the state (format as above):
+ * a group that is off but should be on gets the On (or Toggle) of the
+ * switch, one on with another switch gets the On of the new switch, one
+ * on that should be off gets the Off (or Toggle) of its switch. Groups
+ * already in the wanted state get nothing (a Toggle would switch them
+ * back). Switch numbers the group does not have leave the group
+ * unchanged.
+ *
+ * Returns -1 for a loop without groups, otherwise the new state of the
+ * loop (0 = all groups off, 1 = a group is on).
+ */
+int8_t LoopMidi_ApplyGroupState(
+    uint8_t loopId,
+    uint32_t state
+);
+
+/*
  * Returns 1 if a Program Change on this channel belongs to a loop with
  * Program Change on, or is an echo of one sent shortly before. Does not
  * change anything.
