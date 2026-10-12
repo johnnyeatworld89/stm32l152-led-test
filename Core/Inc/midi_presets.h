@@ -28,7 +28,8 @@
  *
  * Loops: a Control Change that is assigned to a loop (see loop_midi.h,
  * on the channel of that loop) switches the loop and is not used for
- * the presets, even if it is on the preset channel.
+ * the presets, even if it is on the preset channel. The same holds for
+ * a Program Change on the channel of a loop with Program Change on.
  *
  * Feedback loops: a Control Change for a preset whose layout is already
  * active does nothing and sends nothing. If MIDI OUT comes back into

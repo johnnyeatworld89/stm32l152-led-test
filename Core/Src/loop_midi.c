@@ -33,6 +33,9 @@ _Static_assert(
 static LoopMidiConfig loopConfigs[LOOP_MIDI_MAX_LOOPS];
 static LoopMidiState loopStates[LOOP_MIDI_MAX_LOOPS];
 
+/* Current program of each entry, LOOP_MIDI_PROGRAM_NONE = unknown. */
+static uint8_t loopPrograms[LOOP_MIDI_MAX_LOOPS];
+
 /* Image of the EEPROM block, built before writing. */
 static uint8_t storeBuffer[PRESET_CONFIG_MAX_BYTES];
 
@@ -42,6 +45,9 @@ static uint8_t storeBuffer[PRESET_CONFIG_MAX_BYTES];
 /* -------------------------------------------------------------------------- */
 
 #define ECHO_SLOTS                   16U
+
+/* Controller of an echo entry for a Program Change. */
+#define ECHO_PROGRAM                 0x80U
 
 typedef struct
 {
@@ -82,21 +88,30 @@ static int16_t Echo_Find(
 }
 
 
+static void Echo_Remember(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value)
+{
+    SentMessage *sent = &sentMessages[sentNext];
+
+    sent->used = 1U;
+    sent->channel = channel;
+    sent->controller = controller;
+    sent->value = value;
+    sent->tick = HAL_GetTick();
+
+    sentNext = (uint8_t)((sentNext + 1U) % ECHO_SLOTS);
+}
+
+
 static void Send_Message(
     uint8_t channel,
     const LoopMidiMessage *message)
 {
     MIDI_ControlChange(channel, message->controller, message->value);
 
-    SentMessage *sent = &sentMessages[sentNext];
-
-    sent->used = 1U;
-    sent->channel = channel;
-    sent->controller = message->controller;
-    sent->value = message->value;
-    sent->tick = HAL_GetTick();
-
-    sentNext = (uint8_t)((sentNext + 1U) % ECHO_SLOTS);
+    Echo_Remember(channel, message->controller, message->value);
 }
 
 
@@ -176,6 +191,8 @@ static void Config_Normalize(LoopMidiConfig *config)
         config->channel = 0U;
     }
 
+    config->programChange = (config->programChange != 0U) ? 1U : 0U;
+
     if (config->groupCount > LOOP_MIDI_MAX_GROUPS)
     {
         config->groupCount = LOOP_MIDI_MAX_GROUPS;
@@ -226,6 +243,7 @@ static void Config_Normalize(LoopMidiConfig *config)
 static uint8_t Config_IsDefault(const LoopMidiConfig *config)
 {
     return (config->channel == 0U &&
+            config->programChange == 0U &&
             config->groupCount == 0U) ? 1U : 0U;
 }
 
@@ -254,7 +272,7 @@ static uint16_t Config_StoredSize(const LoopMidiConfig *config)
 
 /*
  * Block format, one entry per loop:
- *   loop id, channel, group count,
+ *   loop id, channel (bit 7 = Program Change on), group count,
  *   per group: message count, then controller and value per message
  */
 static uint16_t Store_Serialize(void)
@@ -273,7 +291,8 @@ static uint16_t Store_Serialize(void)
         }
 
         storeBuffer[position++] = config->loopId;
-        storeBuffer[position++] = config->channel;
+        storeBuffer[position++] = (uint8_t)(config->channel |
+            ((config->programChange != 0U) ? 0x80U : 0x00U));
         storeBuffer[position++] = config->groupCount;
 
         for (uint8_t g = 0U; g < config->groupCount; g++)
@@ -314,6 +333,9 @@ static uint8_t Store_Parse(
         config->loopId = data[position++];
         config->channel = data[position++];
         config->groupCount = data[position++];
+
+        config->programChange = (uint8_t)(config->channel >> 7);
+        config->channel = (uint8_t)(config->channel & 0x7FU);
 
         if (config->loopId == 0U ||
             config->channel > 15U ||
@@ -383,6 +405,7 @@ void LoopMidi_Init(void)
     for (uint8_t i = 0U; i < LOOP_MIDI_MAX_LOOPS; i++)
     {
         State_Reset(i);
+        loopPrograms[i] = LOOP_MIDI_PROGRAM_NONE;
     }
 
     memset(sentMessages, 0, sizeof(sentMessages));
@@ -482,6 +505,7 @@ LoopMidiStatus LoopMidi_StoreConfig(const LoopMidiConfig *config)
         {
             memset(&loopConfigs[index], 0, sizeof(loopConfigs[index]));
             State_Reset((uint8_t)index);
+            loopPrograms[index] = LOOP_MIDI_PROGRAM_NONE;
         }
     }
     else
@@ -501,6 +525,13 @@ LoopMidiStatus LoopMidi_StoreConfig(const LoopMidiConfig *config)
         if (index < 0)
         {
             return LOOP_MIDI_ERR_FULL;
+        }
+
+        if (loopConfigs[index].loopId != normalized.loopId ||
+            loopConfigs[index].channel != normalized.channel ||
+            !normalized.programChange)
+        {
+            loopPrograms[index] = LOOP_MIDI_PROGRAM_NONE;
         }
 
         loopConfigs[index] = normalized;
@@ -775,4 +806,100 @@ void LoopMidi_SetLoopState(
     }
 
     state->restoreMask = activeMask;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Program Change                                                             */
+/* -------------------------------------------------------------------------- */
+
+uint8_t LoopMidi_ProgramIsAssigned(
+    uint8_t channel,
+    uint8_t program)
+{
+    if (Echo_Find(channel, ECHO_PROGRAM, program) >= 0)
+    {
+        return 1U;
+    }
+
+    for (uint8_t i = 0U; i < LOOP_MIDI_MAX_LOOPS; i++)
+    {
+        if (loopConfigs[i].loopId != 0U &&
+            loopConfigs[i].programChange &&
+            loopConfigs[i].channel == channel)
+        {
+            return 1U;
+        }
+    }
+
+    return 0U;
+}
+
+
+void LoopMidi_ReceiveProgram(
+    uint8_t channel,
+    uint8_t program)
+{
+    if (program > 127U ||
+        LoopMidi_ConsumeEcho(channel, ECHO_PROGRAM, program))
+    {
+        return;
+    }
+
+    for (uint8_t i = 0U; i < LOOP_MIDI_MAX_LOOPS; i++)
+    {
+        if (loopConfigs[i].loopId != 0U &&
+            loopConfigs[i].programChange &&
+            loopConfigs[i].channel == channel)
+        {
+            loopPrograms[i] = program;
+        }
+    }
+}
+
+
+uint8_t LoopMidi_GetProgram(uint8_t loopId)
+{
+    int16_t index = Config_Find(loopId);
+
+    if (index < 0 || !loopConfigs[index].programChange)
+    {
+        return LOOP_MIDI_PROGRAM_NONE;
+    }
+
+    return loopPrograms[index];
+}
+
+
+void LoopMidi_SendProgram(
+    uint8_t loopId,
+    uint8_t program)
+{
+    int16_t index = Config_Find(loopId);
+
+    if (index < 0 ||
+        !loopConfigs[index].programChange ||
+        program > 127U)
+    {
+        return;
+    }
+
+    uint8_t channel = loopConfigs[index].channel;
+
+    MIDI_ProgramChange(channel, program);
+    Echo_Remember(channel, ECHO_PROGRAM, program);
+
+    /*
+     * Every loop on this channel with Program Change on sees the same
+     * program (one device, several loops).
+     */
+    for (uint8_t i = 0U; i < LOOP_MIDI_MAX_LOOPS; i++)
+    {
+        if (loopConfigs[i].loopId != 0U &&
+            loopConfigs[i].programChange &&
+            loopConfigs[i].channel == channel)
+        {
+            loopPrograms[i] = program;
+        }
+    }
 }

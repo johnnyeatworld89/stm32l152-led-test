@@ -5077,6 +5077,99 @@ static void UI_LoopApplyStatusBits(uint32_t bits)
 }
 
 
+/*
+ * Programme der Effektgeraete fuer ein Preset: Byte n = n-ter Loop in
+ * uiItems (wie beim Loop-Status), PRESET_LOOP_PROGRAM_VALID | Programm
+ * fuer Loops mit Program Change und bekanntem Programm, sonst 0.
+ */
+static void UI_LoopProgramsBuild(uint8_t *programs)
+{
+    uint8_t loopNumber = 0U;
+
+    for (uint8_t i = 0U; i < PRESET_LOOP_PROGRAM_BYTES; i++)
+    {
+        programs[i] = 0U;
+    }
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type != UI_ITEM_LOOP)
+        {
+            continue;
+        }
+
+        if (loopNumber < PRESET_LOOP_STATUS_MAX_LOOPS &&
+            uiItems[i].id <= 255U)
+        {
+            uint8_t program =
+                LoopMidi_GetProgram((uint8_t)uiItems[i].id);
+
+            if (program != LOOP_MIDI_PROGRAM_NONE)
+            {
+                programs[loopNumber] =
+                    (uint8_t)(PRESET_LOOP_PROGRAM_VALID | program);
+            }
+        }
+
+        loopNumber++;
+    }
+}
+
+
+/*
+ * Sendet die gespeicherten Programme an die Effektgeraete (nur Loops,
+ * bei denen Program Change an ist). Loops ohne gespeichertes Programm
+ * bleiben unveraendert.
+ */
+static void UI_LoopApplyPrograms(const uint8_t *programs)
+{
+    uint8_t loopNumber = 0U;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type != UI_ITEM_LOOP)
+        {
+            continue;
+        }
+
+        if (loopNumber < PRESET_LOOP_STATUS_MAX_LOOPS &&
+            uiItems[i].id <= 255U &&
+            (programs[loopNumber] & PRESET_LOOP_PROGRAM_VALID) != 0U)
+        {
+            LoopMidi_SendProgram(
+                (uint8_t)uiItems[i].id,
+                (uint8_t)(programs[loopNumber] &
+                          (uint8_t)~PRESET_LOOP_PROGRAM_VALID));
+        }
+
+        loopNumber++;
+    }
+}
+
+
+/*
+ * Prueft, ob die gespeicherten Programme den aktuellen entsprechen.
+ * Loops ohne gespeichertes Programm zaehlen als gleich.
+ */
+static uint8_t UI_LoopProgramsMatch(const uint8_t *programs)
+{
+    uint8_t current[PRESET_LOOP_PROGRAM_BYTES];
+
+    UI_LoopProgramsBuild(current);
+
+    for (uint8_t i = 0U; i < PRESET_LOOP_PROGRAM_BYTES; i++)
+    {
+        if ((programs[i] & PRESET_LOOP_PROGRAM_VALID) != 0U &&
+            programs[i] != current[i])
+        {
+            return 0U;
+        }
+    }
+
+    return 1U;
+}
+
+
 /* -------------------------------------------------------------------------- */
 /* Save Preset: Layout serialisieren und speichern                            */
 /* -------------------------------------------------------------------------- */
@@ -5275,10 +5368,13 @@ static uint8_t UI_PresetLoad(
     uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
     uint8_t length = 0U;
     uint32_t loopStatus = 0UL;
+    uint8_t programs[PRESET_LOOP_PROGRAM_BYTES];
 
     if (PresetStore_ReadLayout(bank, slot, layout, &length) !=
             PRESET_STORE_OK ||
         PresetStore_ReadLoopStatus(bank, slot, &loopStatus) !=
+            PRESET_STORE_OK ||
+        PresetStore_ReadLoopPrograms(bank, slot, programs) !=
             PRESET_STORE_OK)
     {
         return 0U;
@@ -5291,6 +5387,11 @@ static uint8_t UI_PresetLoad(
 
     MidiPresets_NotifyPresetChanged(bank, slot);
 
+    /*
+     * Erst die Programme, dann On/Bypass: ein Programmwechsel kann den
+     * Bypass-Zustand des Geraets aendern.
+     */
+    UI_LoopApplyPrograms(programs);
     UI_LoopApplyStatusBits(loopStatus);
 
     return 1U;
@@ -5375,6 +5476,15 @@ static uint8_t UI_PresetMatchesCurrent(
 
     if ((storedLoopStatus & PRESET_LOOP_STATUS_VALID) != 0UL &&
         storedLoopStatus != UI_LoopStatusBits())
+    {
+        return 0U;
+    }
+
+    uint8_t storedPrograms[PRESET_LOOP_PROGRAM_BYTES];
+
+    if (PresetStore_ReadLoopPrograms(bank, slot, storedPrograms) !=
+            PRESET_STORE_OK ||
+        !UI_LoopProgramsMatch(storedPrograms))
     {
         return 0U;
     }
@@ -5505,9 +5615,13 @@ uint8_t UI_SavePresetFromMidi(uint8_t slot)
             name, position, sizeof(name), (uint8_t)(slot + 1U));
     }
 
+    uint8_t programs[PRESET_LOOP_PROGRAM_BYTES];
+
+    UI_LoopProgramsBuild(programs);
+
     PresetStoreStatus result = PresetStore_SavePreset(
         uiPresetBank, slot, name, layout, length,
-            UI_LoopStatusBits());
+            UI_LoopStatusBits(), programs);
 
     if (result != PRESET_STORE_OK)
     {
@@ -5553,9 +5667,13 @@ static void UI_SaveExecute(
         uiSaveStatus = UI_SAVE_STATUS_SAVING;
         UI_SaveDrawStatus();
 
+        uint8_t programs[PRESET_LOOP_PROGRAM_BYTES];
+
+        UI_LoopProgramsBuild(programs);
+
         PresetStoreStatus result = PresetStore_SavePreset(
             uiPresetBank, slot, name, layout, length,
-            UI_LoopStatusBits());
+            UI_LoopStatusBits(), programs);
 
         if (result == PRESET_STORE_OK)
         {
@@ -6738,6 +6856,7 @@ static void UI_MenuManagePresets(void)
  * Zwei ganzseitige Listen im Stil der Preset-Liste:
  *
  *   Midi-Seite:        Midi Channel: 1
+ *                      Programm Change: Off
  *                      On/Bypass 1
  *                      ...
  *                      add On/Bypass
@@ -6758,13 +6877,16 @@ static void UI_MenuManagePresets(void)
 #define UI_LM_VISIBLE_ROWS            UI_SAVE_VISIBLE_PRESETS
 #define UI_LM_MAX_GROUP_ROWS          (LOOP_MIDI_MAX_MESSAGES + 1U)
 
-/* Zeile 0 der Midi-Seite. */
+/* Zeilen der Midi-Seite, danach die Gruppen und "add On/Bypass". */
 #define UI_LM_CHANNEL_ROW             0
+#define UI_LM_PROGRAM_ROW             1
+#define UI_LM_FIRST_GROUP_ROW         2
 
 typedef enum
 {
     UI_LM_EDIT_NONE = 0,
     UI_LM_EDIT_CHANNEL,
+    UI_LM_EDIT_PROGRAM,
     UI_LM_EDIT_CONTROLLER,
     UI_LM_EDIT_VALUE
 
@@ -6805,6 +6927,7 @@ static uint8_t uiLmScrollTop = 0U;
 
 static UI_LmEdit uiLmEdit = UI_LM_EDIT_NONE;
 static uint8_t uiLmChannelBackup = 0U;
+static uint8_t uiLmProgramBackup = 0U;
 
 /* Werte waehrend der Eingabe einer Meldung, Controller -1 = empty. */
 static int16_t uiLmEditController = -1;
@@ -6841,7 +6964,8 @@ static uint8_t UI_LmIsLearning(void)
     return (uiMode == UI_MODE_MENU &&
             (uiMenuPage == UI_MENU_PAGE_LOOP_MIDI ||
              uiMenuPage == UI_MENU_PAGE_LOOP_MIDI_GROUP) &&
-            uiLmEdit != UI_LM_EDIT_NONE) ? 1U : 0U;
+            uiLmEdit != UI_LM_EDIT_NONE &&
+            uiLmEdit != UI_LM_EDIT_PROGRAM) ? 1U : 0U;
 }
 
 
@@ -6899,8 +7023,9 @@ static uint8_t UI_LmRowCount(void)
         return uiLmRowCount;
     }
 
-    /* Kanal, Gruppen, "add On/Bypass" */
-    return (uint8_t)(1U + uiLmConfig.groupCount +
+    /* Kanal, Program Change, Gruppen, "add On/Bypass" */
+    return (uint8_t)((uint8_t)UI_LM_FIRST_GROUP_ROW +
+        uiLmConfig.groupCount +
         ((uiLmConfig.groupCount < LOOP_MIDI_MAX_GROUPS) ? 1U : 0U));
 }
 
@@ -6991,12 +7116,22 @@ static void UI_LmBuildRowText(
                 text, position, UI_SAVE_TEXT_CAPACITY,
                 (uint8_t)(uiLmConfig.channel + 1U));
         }
-        else if (row <= uiLmConfig.groupCount)
+        else if (row == UI_LM_PROGRAM_ROW)
+        {
+            UI_SaveAppendText(
+                text, 0U, UI_SAVE_TEXT_CAPACITY,
+                uiLmConfig.programChange ?
+                    "Programm Change: On" :
+                    "Programm Change: Off");
+        }
+        else if (row < (uint8_t)UI_LM_FIRST_GROUP_ROW +
+                       uiLmConfig.groupCount)
         {
             position = UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY, "On/Bypass ");
             UI_SaveAppendUInt(
-                text, position, UI_SAVE_TEXT_CAPACITY, row);
+                text, position, UI_SAVE_TEXT_CAPACITY,
+                (uint8_t)(row - (uint8_t)UI_LM_FIRST_GROUP_ROW + 1U));
         }
         else
         {
@@ -7186,6 +7321,11 @@ static void UI_LmDrawStatus(void)
     {
         UI_SaveAppendText(
             text, 0U, UI_SAVE_TEXT_CAPACITY, "Turn or send CC");
+    }
+    else if (uiLmEdit == UI_LM_EDIT_PROGRAM)
+    {
+        UI_SaveAppendText(
+            text, 0U, UI_SAVE_TEXT_CAPACITY, "Turn: On / Off");
     }
     else if (uiLmEdit != UI_LM_EDIT_NONE)
     {
@@ -7601,6 +7741,10 @@ static LoopMidiStatus UI_LmFinish(void)
     {
         uiLmConfig.channel = uiLmChannelBackup;
     }
+    else if (uiLmEdit == UI_LM_EDIT_PROGRAM)
+    {
+        uiLmConfig.programChange = uiLmProgramBackup;
+    }
 
     if (UI_LmIsGroupPage())
     {
@@ -7678,7 +7822,7 @@ static void UI_LmBackToMain(void)
     /* Cursor auf die Gruppe bzw. auf "add On/Bypass". */
     uiLmRow =
         (group < uiLmConfig.groupCount) ?
-        (int16_t)(group + 1U) :
+        (int16_t)(group + (uint8_t)UI_LM_FIRST_GROUP_ROW) :
         (int16_t)(UI_LmRowCount() - 1U);
 
     if (uiLmRow >= (int16_t)UI_LM_VISIBLE_ROWS)
@@ -7730,6 +7874,11 @@ static void UI_LmHandleEncoder(int8_t direction)
             UI_LmDrawStatus();
             return;
 
+        case UI_LM_EDIT_PROGRAM:
+            uiLmConfig.programChange = (direction > 0) ? 1U : 0U;
+            UI_LmDrawRow((uint8_t)uiLmRow);
+            return;
+
         case UI_LM_EDIT_CONTROLLER:
             uiLmEditController = UI_LmClamp(
                 (int16_t)(uiLmEditController + direction), -1, 127);
@@ -7772,6 +7921,17 @@ static void UI_LmHandleEnter(void)
             return;
         }
 
+        if (uiLmEdit == UI_LM_EDIT_PROGRAM)
+        {
+            if (uiLmConfig.programChange != uiLmProgramBackup)
+            {
+                uiLmDirty = 1U;
+            }
+
+            UI_LmEndEdit();
+            return;
+        }
+
         if (uiLmRow == UI_LM_CHANNEL_ROW)
         {
             uiLmChannelBackup = uiLmConfig.channel;
@@ -7782,9 +7942,19 @@ static void UI_LmHandleEnter(void)
             return;
         }
 
-        if (uiLmRow > 0)
+        if (uiLmRow == UI_LM_PROGRAM_ROW)
         {
-            UI_LmOpenGroup((uint8_t)(uiLmRow - 1));
+            uiLmProgramBackup = uiLmConfig.programChange;
+            uiLmEdit = UI_LM_EDIT_PROGRAM;
+            uiLmStatus = UI_LM_STATUS_NONE;
+            UI_LmDrawRow((uint8_t)uiLmRow);
+            UI_LmDrawStatus();
+            return;
+        }
+
+        if (uiLmRow >= UI_LM_FIRST_GROUP_ROW)
+        {
+            UI_LmOpenGroup((uint8_t)(uiLmRow - UI_LM_FIRST_GROUP_ROW));
         }
 
         return;
@@ -7824,6 +7994,7 @@ static void UI_LmHandleEnter(void)
             return;
 
         case UI_LM_EDIT_CHANNEL:
+        case UI_LM_EDIT_PROGRAM:
         default:
             return;
     }
@@ -7835,6 +8006,13 @@ static void UI_LmHandleReturn(void)
     if (uiLmEdit == UI_LM_EDIT_CHANNEL)
     {
         uiLmConfig.channel = uiLmChannelBackup;
+        UI_LmEndEdit();
+        return;
+    }
+
+    if (uiLmEdit == UI_LM_EDIT_PROGRAM)
+    {
+        uiLmConfig.programChange = uiLmProgramBackup;
         UI_LmEndEdit();
         return;
     }
@@ -7966,6 +8144,26 @@ void UI_LoopMidiControlChange(
             UI_LoopSetActive((int16_t)i, (uint8_t)state, 1U);
         }
     }
+}
+
+
+/*
+ * Program Change eines Effektgeraets: das Programm wird fuer die Presets
+ * gemerkt (auch bei offenem Menue, es aendert die Anzeige nicht).
+ */
+uint8_t UI_LoopMidiClaimsProgram(
+    uint8_t channel,
+    uint8_t program)
+{
+    return LoopMidi_ProgramIsAssigned(channel, program);
+}
+
+
+void UI_LoopMidiProgramChange(
+    uint8_t channel,
+    uint8_t program)
+{
+    LoopMidi_ReceiveProgram(channel, program);
 }
 
 
