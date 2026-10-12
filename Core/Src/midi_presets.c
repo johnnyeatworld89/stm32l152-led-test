@@ -12,7 +12,7 @@
 
 typedef enum
 {
-    EVENT_BANK = 1U,
+    EVENT_PROGRAM_CHANGE = 1U,
     EVENT_CONTROL_CHANGE
 
 } EventType;
@@ -27,7 +27,7 @@ typedef struct
 {
     uint8_t type;
     uint8_t channel;
-    uint8_t data1;      /* bank (0 to 63) or controller */
+    uint8_t data1;      /* program or controller */
     uint8_t data2;      /* value of a Control Change */
 
 } Event;
@@ -107,25 +107,19 @@ static uint8_t Channel_Matches(uint8_t channel)
 /* Receiving                                                                  */
 /* -------------------------------------------------------------------------- */
 
+/*
+ * Program and Control Changes are queued unfiltered: whether a message
+ * belongs to a loop (loop_midi.h) or to the presets is decided in the
+ * main loop, where the loop configuration may be read and changed.
+ */
 void MidiPresets_OnProgramChange(
     uint8_t channel,
     uint8_t program)
 {
-    if (!Channel_Matches(channel) ||
-        program >= PRESET_BANK_COUNT)
-    {
-        return;
-    }
-
-    Queue_Push(EVENT_BANK, channel, program, 0U);
+    Queue_Push(EVENT_PROGRAM_CHANGE, channel, program, 0U);
 }
 
 
-/*
- * Control Changes are queued unfiltered: whether a message belongs to a
- * loop (loop_midi.h) or to the presets is decided in the main loop,
- * where the loop configuration may be read and changed.
- */
 void MidiPresets_OnControlChange(
     uint8_t channel,
     uint8_t controller,
@@ -192,11 +186,24 @@ void MidiPresets_Process(void)
     {
         /*
          * A Control Change that belongs to a loop (or is learned in its
-         * MIDI menu) is not used for the presets.
+         * MIDI menu) is not used for the presets. The same holds for a
+         * Program Change on the channel of a loop with Program Change on.
          */
         uint8_t loopMessage = 0U;
 
-        if (event.type == EVENT_CONTROL_CHANGE)
+        if (event.type == EVENT_PROGRAM_CHANGE)
+        {
+            loopMessage = UI_LoopMidiClaimsProgram(
+                event.channel, event.data1);
+
+            if (!loopMessage &&
+                (!Channel_Matches(event.channel) ||
+                 event.data1 >= PRESET_BANK_COUNT))
+            {
+                continue;
+            }
+        }
+        else if (event.type == EVENT_CONTROL_CHANGE)
         {
             loopMessage = UI_LoopMidiClaims(
                 event.channel, event.data1, event.data2);
@@ -240,9 +247,16 @@ void MidiPresets_Process(void)
             pendingSlot = -1;
         }
 
-        if (event.type == EVENT_BANK)
+        if (event.type == EVENT_PROGRAM_CHANGE)
         {
-            UI_SelectBank(event.data1);
+            if (loopMessage)
+            {
+                UI_LoopMidiProgramChange(event.channel, event.data1);
+            }
+            else
+            {
+                UI_SelectBank(event.data1);
+            }
         }
         else if (loopMessage)
         {

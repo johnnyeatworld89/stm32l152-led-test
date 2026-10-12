@@ -13,7 +13,7 @@ Sprache mit dem Nutzer: Deutsch.
 
 ## Dateien
 - `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
-- `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (220 belegt inkl. Loop-Status-Bitmap an Offset 216, Rest reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
+- `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (256 belegt: Loop-Status-Bitmap an Offset 216, Loop-Programme an 220 = Marker + 224 = 32 Byte; Rest reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
 - `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`.
 - `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop. Queue enthält rohe CCs; Zuordnung Loop/Preset erst in der Main-Loop.
 - `loop_midi.c/.h` – MIDI-Steuerung der Effektgeräte in den Loops: Konfiguration (Kanal, On/Bypass-Gruppen), Gruppenlogik, Senden, Echo-Filter, EEPROM-Serialisierung.
@@ -25,7 +25,8 @@ Sprache mit dem Nutzer: Deutsch.
 - Manage Presets: Rename bank, Load / Rename / Delete (Copy bewusst weggelassen, später).
 
 ## Loop-MIDI (Effektgeräte)
-- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "On/Bypass n", "add On/Bypass".
+- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "Program Change: Off/On", "On/Bypass n", "add On/Bypass".
+- Program Change (je Loop, Bit 7 des Kanal-Bytes im Config-Block): PCs auf dem Loop-Kanal = aktuelles Programm des Geräts (Vorrang vor Bank-PC, Echo-Filter wie bei CCs). Presets speichern je Loop `0x80 | Programm` (0 = keins, alte Presets ohne Marker = keins); beim Laden zuerst PCs, dann On/Bypass. Unterschiedliches Programm verhindert den Rückkopplungsschutz-Treffer (`UI_PresetMatchesCurrent`).
 - Je Loop max. 8 Gruppen à max. 8 Schalter; Schalter = 2 CC-Meldungen (On/Off, gleich = Toggle). In einer Gruppe max. ein Schalter an, Loop aktiv solange eine Gruppe an.
 - Empfang: On -> Gruppe an; Off nur wirksam, wenn dieser Schalter an war; gleicher Toggle zweimal -> Gruppe aus. Vom Gerät gemeldet = `ACTIVE_CONFIRMED`.
 - Senden nur bei Zustandswechsel durch den Router (Preset laden): an = letzte Schalter der zuletzt aktiven Gruppen (sonst Gruppe 1 Schalter 1), aus = Off der aktiven Schalter.

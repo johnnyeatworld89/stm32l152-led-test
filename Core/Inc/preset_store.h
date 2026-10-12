@@ -41,6 +41,15 @@
 #define PRESET_LOOP_STATUS_MAX_LOOPS 31U
 
 /*
+ * Programs of the effect devices stored with a preset (loops with
+ * Program Change on, see loop_midi.h): one byte per loop, index n =
+ * n-th loop as for the loop status. PRESET_LOOP_PROGRAM_VALID | program
+ * (0 to 127) marks a stored program, 0 = none.
+ */
+#define PRESET_LOOP_PROGRAM_BYTES    32U
+#define PRESET_LOOP_PROGRAM_VALID    0x80U
+
+/*
  * Size of the configuration block behind the preset records (loop
  * MIDI settings, see loop_midi.c).
  */
@@ -93,7 +102,8 @@ PresetStoreStatus PresetStore_SavePreset(
     const char *name,
     const uint8_t *layout,
     uint8_t layoutLength,
-    uint32_t loopStatus
+    uint32_t loopStatus,
+    const uint8_t *loopPrograms     /* PRESET_LOOP_PROGRAM_BYTES or NULL */
 );
 
 /*
@@ -116,6 +126,18 @@ PresetStoreStatus PresetStore_ReadLoopStatus(
     uint8_t bank,
     uint8_t slot,
     uint32_t *loopStatus
+);
+
+/*
+ * Reads the loop programs of a preset into programs (at least
+ * PRESET_LOOP_PROGRAM_BYTES bytes). Presets saved before the programs
+ * existed return all 0. Returns PRESET_STORE_ERR_NOT_FOUND for an empty
+ * slot.
+ */
+PresetStoreStatus PresetStore_ReadLoopPrograms(
+    uint8_t bank,
+    uint8_t slot,
+    uint8_t *programs
 );
 
 /*

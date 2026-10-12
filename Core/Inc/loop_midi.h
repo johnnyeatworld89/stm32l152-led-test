@@ -33,6 +33,13 @@
  *              known yet, group 1 gets the On of its first switch.
  *   loop off:  every group that is on gets the Off (or Toggle) of its
  *              switch.
+ *
+ * Program Change (optional, per loop):
+ *   With programChange on, a Program Change received on the channel of
+ *   the loop is taken as the current program of the effect device. It
+ *   is stored with a preset and sent again when the preset is loaded.
+ *   Like the Control Changes of the loops, such a Program Change is not
+ *   used for the presets (bank select), even on the preset channel.
  */
 
 #define LOOP_MIDI_MAX_LOOPS          31U
@@ -46,6 +53,9 @@
  * effect devices) and ignored.
  */
 #define LOOP_MIDI_ECHO_TIME_MS      200U
+
+/* No program known (or Program Change off). */
+#define LOOP_MIDI_PROGRAM_NONE      0xFFU
 
 typedef struct
 {
@@ -70,6 +80,7 @@ typedef struct
 {
     uint8_t loopId;         /* item id of the loop, 0 = unused */
     uint8_t channel;        /* 0 to 15 (= MIDI channel 1 to 16) */
+    uint8_t programChange;  /* 1 = Program Change on */
     uint8_t groupCount;
     LoopMidiGroup groups[LOOP_MIDI_MAX_GROUPS];
 
@@ -100,7 +111,8 @@ void LoopMidi_GetConfig(
  * Replaces the configuration of config->loopId and stores all
  * configurations in the EEPROM (blocks while writing). Groups without
  * messages are removed, an odd last message becomes a Toggle.
- * The switching state of this loop is reset.
+ * The switching state of this loop is reset. The current program is
+ * kept unless the channel changes or Program Change is switched off.
  *
  * LOOP_MIDI_ERR_FULL: no free loop entry or the EEPROM block is too
  * small. Nothing was changed.
@@ -169,6 +181,43 @@ int8_t LoopMidi_Receive(
 void LoopMidi_SetLoopState(
     uint8_t loopId,
     uint8_t active
+);
+
+/*
+ * Returns 1 if a Program Change on this channel belongs to a loop with
+ * Program Change on, or is an echo of one sent shortly before. Does not
+ * change anything.
+ */
+uint8_t LoopMidi_ProgramIsAssigned(
+    uint8_t channel,
+    uint8_t program
+);
+
+/*
+ * Takes a received Program Change as the current program of every loop
+ * with Program Change on and this channel. An echo is ignored.
+ */
+void LoopMidi_ReceiveProgram(
+    uint8_t channel,
+    uint8_t program
+);
+
+/*
+ * Current program of the loop, LOOP_MIDI_PROGRAM_NONE if Program Change
+ * is off or no program is known yet.
+ */
+uint8_t LoopMidi_GetProgram(
+    uint8_t loopId
+);
+
+/*
+ * Sends the program (0 to 127) to the effect device of the loop and
+ * takes it as the current program. Does nothing if Program Change is
+ * off for this loop.
+ */
+void LoopMidi_SendProgram(
+    uint8_t loopId,
+    uint8_t program
 );
 
 /* Returns 1 if the loop has at least one group. */

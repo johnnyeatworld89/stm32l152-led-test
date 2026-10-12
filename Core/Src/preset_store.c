@@ -33,11 +33,19 @@
 #define RECORD_OFFSET_NAME           8U
 #define RECORD_OFFSET_LAYOUT         24U
 #define RECORD_OFFSET_LOOP_STATUS    216U   /* see PRESET_LOOP_STATUS_VALID */
-#define RECORD_USED_SIZE             220U
+#define RECORD_OFFSET_PROGRAM_MARKER 220U   /* RECORD_PROGRAM_MARKER        */
+#define RECORD_OFFSET_PROGRAMS       224U   /* see PRESET_LOOP_PROGRAM_VALID */
+#define RECORD_USED_SIZE             256U
 #define RECORD_USED_WORDS            (RECORD_USED_SIZE / 4U)
 
 #define RECORD_MAGIC                 0x5052U
 #define RECORD_VERSION               1U
+
+/*
+ * Marks the loop programs as written. Records of older firmware have
+ * anything there, so their programs are taken as "none".
+ */
+#define RECORD_PROGRAM_MARKER        0x0050474CUL   /* "LGP", 0 */
 
 _Static_assert(
     (RECORD_OFFSET_NAME + PRESET_NAME_LENGTH) ==
@@ -48,6 +56,15 @@ _Static_assert(
     (RECORD_OFFSET_LAYOUT + PRESET_LAYOUT_MAX_BYTES) ==
         RECORD_OFFSET_LOOP_STATUS,
     "layout block size does not match loop status offset");
+
+_Static_assert(
+    (RECORD_OFFSET_PROGRAMS + PRESET_LOOP_PROGRAM_BYTES) ==
+        RECORD_USED_SIZE,
+    "loop program block size does not match used record size");
+
+_Static_assert(
+    RECORD_USED_SIZE <= RECORD_SIZE,
+    "used record size exceeds the record size");
 
 _Static_assert(
     (RECORD_USED_SIZE % 4U) == 0U,
@@ -322,7 +339,8 @@ PresetStoreStatus PresetStore_SavePreset(
     const char *name,
     const uint8_t *layout,
     uint8_t layoutLength,
-    uint32_t loopStatus)
+    uint32_t loopStatus,
+    const uint8_t *loopPrograms)
 {
     if (bank >= PRESET_BANK_COUNT ||
         slot >= PRESET_SLOTS_PER_BANK ||
@@ -374,6 +392,13 @@ PresetStoreStatus PresetStore_SavePreset(
     memcpy(&bytes[RECORD_OFFSET_LAYOUT], layout, layoutLength);
 
     words[RECORD_OFFSET_LOOP_STATUS / 4U] = loopStatus;
+    words[RECORD_OFFSET_PROGRAM_MARKER / 4U] = RECORD_PROGRAM_MARKER;
+
+    if (loopPrograms != NULL)
+    {
+        memcpy(&bytes[RECORD_OFFSET_PROGRAMS], loopPrograms,
+               PRESET_LOOP_PROGRAM_BYTES);
+    }
 
     /*
      * Write sequence: invalidate the old record (word 0 = 0), write
@@ -554,6 +579,47 @@ PresetStoreStatus PresetStore_ReadLoopStatus(
     *loopStatus = *(const volatile uint32_t *)(
         Store_RecordAddress((uint8_t)index) +
         RECORD_OFFSET_LOOP_STATUS);
+
+    return PRESET_STORE_OK;
+}
+
+
+PresetStoreStatus PresetStore_ReadLoopPrograms(
+    uint8_t bank,
+    uint8_t slot,
+    uint8_t *programs)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        programs == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    uint32_t address = Store_RecordAddress((uint8_t)index);
+
+    if (*(const volatile uint32_t *)(
+            address + RECORD_OFFSET_PROGRAM_MARKER) !=
+        RECORD_PROGRAM_MARKER)
+    {
+        memset(programs, 0, PRESET_LOOP_PROGRAM_BYTES);
+        return PRESET_STORE_OK;
+    }
+
+    const volatile uint8_t *record =
+        (const volatile uint8_t *)(address + RECORD_OFFSET_PROGRAMS);
+
+    for (uint8_t i = 0U; i < PRESET_LOOP_PROGRAM_BYTES; i++)
+    {
+        programs[i] = record[i];
+    }
 
     return PRESET_STORE_OK;
 }
