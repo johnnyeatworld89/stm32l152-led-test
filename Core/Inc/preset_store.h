@@ -50,6 +50,22 @@
 #define PRESET_LOOP_PROGRAM_VALID    0x80U
 
 /*
+ * Additional MIDI messages of a preset (edited in Manage Presets), sent
+ * when the preset is loaded. A message is stored as it is sent: status
+ * byte (0xB0 | channel = Control Change, 0xC0 | channel = Program
+ * Change) and two data bytes (data2 = 0 for a Program Change).
+ */
+#define PRESET_MIDI_MAX_MESSAGES     16U
+
+typedef struct
+{
+    uint8_t status;
+    uint8_t data1;
+    uint8_t data2;
+
+} PresetMidiMessage;
+
+/*
  * Size of the configuration block behind the preset records (loop
  * MIDI settings, see loop_midi.c).
  */
@@ -91,7 +107,8 @@ uint8_t PresetStore_GetUsedCount(void);
 
 /*
  * Stores a preset. An existing preset in the same bank and slot is
- * overwritten. Blocks while the EEPROM is written.
+ * overwritten, its additional MIDI messages (see
+ * PresetStore_WriteMidi) are kept. Blocks while the EEPROM is written.
  *
  * Returns PRESET_STORE_ERR_FULL if the slot is new and all
  * PRESET_MAX_RECORDS records are in use.
@@ -138,6 +155,34 @@ PresetStoreStatus PresetStore_ReadLoopPrograms(
     uint8_t bank,
     uint8_t slot,
     uint8_t *programs
+);
+
+/*
+ * Reads the additional MIDI messages of a preset into messages (at
+ * least PRESET_MIDI_MAX_MESSAGES entries) and their number into count.
+ * Presets saved before the messages existed have none. Returns
+ * PRESET_STORE_ERR_NOT_FOUND for an empty slot.
+ */
+PresetStoreStatus PresetStore_ReadMidiMessages(
+    uint8_t bank,
+    uint8_t slot,
+    PresetMidiMessage *messages,
+    uint8_t *count
+);
+
+/*
+ * Replaces the loop programs (PRESET_LOOP_PROGRAM_BYTES) and the
+ * additional MIDI messages of an existing preset. Layout, name and loop
+ * status stay untouched. A power loss while writing leaves the preset
+ * without programs or messages. Returns PRESET_STORE_ERR_NOT_FOUND for
+ * an empty slot.
+ */
+PresetStoreStatus PresetStore_WriteMidi(
+    uint8_t bank,
+    uint8_t slot,
+    const uint8_t *loopPrograms,
+    const PresetMidiMessage *messages,
+    uint8_t count
 );
 
 /*

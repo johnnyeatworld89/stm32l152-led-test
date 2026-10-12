@@ -44,7 +44,11 @@ static uint8_t storeBuffer[PRESET_CONFIG_MAX_BYTES];
 /* Echo filter                                                                */
 /* -------------------------------------------------------------------------- */
 
-#define ECHO_SLOTS                   16U
+/*
+ * Enough for the messages of one preset load: programs, the additional
+ * MIDI messages of the preset (PRESET_MIDI_MAX_MESSAGES) and On/Bypass.
+ */
+#define ECHO_SLOTS                   64U
 
 /* Controller of an echo entry for a Program Change. */
 #define ECHO_PROGRAM                 0x80U
@@ -871,6 +875,19 @@ uint8_t LoopMidi_GetProgram(uint8_t loopId)
 }
 
 
+uint8_t LoopMidi_GetProgramChannel(uint8_t loopId)
+{
+    int16_t index = Config_Find(loopId);
+
+    if (index < 0 || !loopConfigs[index].programChange)
+    {
+        return LOOP_MIDI_PROGRAM_NONE;
+    }
+
+    return loopConfigs[index].channel;
+}
+
+
 void LoopMidi_SendProgram(
     uint8_t loopId,
     uint8_t program)
@@ -884,7 +901,36 @@ void LoopMidi_SendProgram(
         return;
     }
 
-    uint8_t channel = loopConfigs[index].channel;
+    LoopMidi_SendChannelProgram(loopConfigs[index].channel, program);
+}
+
+
+void LoopMidi_SendControlChange(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value)
+{
+    if (channel > 15U ||
+        controller > 127U ||
+        value > 127U)
+    {
+        return;
+    }
+
+    MIDI_ControlChange(channel, controller, value);
+    Echo_Remember(channel, controller, value);
+}
+
+
+void LoopMidi_SendChannelProgram(
+    uint8_t channel,
+    uint8_t program)
+{
+    if (channel > 15U ||
+        program > 127U)
+    {
+        return;
+    }
 
     MIDI_ProgramChange(channel, program);
     Echo_Remember(channel, ECHO_PROGRAM, program);

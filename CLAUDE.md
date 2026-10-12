@@ -12,8 +12,8 @@ Sprache mit dem Nutzer: Deutsch.
   Opto-Eingang H11L1, TRS Typ A.
 
 ## Dateien
-- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
-- `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (256 belegt: Loop-Status-Bitmap an Offset 216, Loop-Programme an 220 = Marker + 224 = 32 Byte; Rest reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
+- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, PRESET_MIDI, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
+- `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (308 belegt: Loop-Status-Bitmap an Offset 216, Loop-Programme an 220 = Marker + 224 = 32 Byte, zusätzliche MIDI-Meldungen an 256 = Marker/Anzahl + 260 = 16 × 3 Byte; Rest 172 Byte reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
 - `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`.
 - `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop. Queue enthält rohe CCs; Zuordnung Loop/Preset erst in der Main-Loop.
 - `loop_midi.c/.h` – MIDI-Steuerung der Effektgeräte in den Loops: Konfiguration (Kanal, On/Bypass-Gruppen), Gruppenlogik, Senden, Echo-Filter, EEPROM-Serialisierung.
@@ -22,7 +22,9 @@ Sprache mit dem Nutzer: Deutsch.
 ## Presets
 - Bänke 0–63, je 24 Presets (Anzeige "01: name"), insgesamt höchstens 30 im EEPROM.
 - Layout-Blob: [Anzahl] + je Eintrag (id u8, order i8, lane i8). Auto-Nodes werden nicht gespeichert, beim Laden neu berechnet. `UI_PresetApplyLayout` validiert.
-- Manage Presets: Rename bank, Load / Rename / Delete (Copy bewusst weggelassen, später).
+- Manage Presets: Rename bank, Load / Rename / Midi / Delete (Copy bewusst weggelassen, später).
+- Preset-Midi (Aktion "Midi", Präfix `UI_Pm`): Liste aller Meldungen, die das Preset beim Laden sendet (außer Bank-PC/Preset-CC und On/Bypass): zuerst je Kanal das Loop-Programm ("Ch2 PC5 L01"), dann zusätzliche Meldungen ("Ch1 CC20, 127", "Ch3 PC7"), "add message". Enter: Kanal -> Typ (CC/PC/empty = löschen) -> Nummer -> Wert (nur CC); MIDI Learn mit Kette wie bei Loop-MIDI. PC auf dem Kanal eines Loops mit Program Change wird als Loop-Programm gespeichert, sonst als zusätzliche Meldung (max. 16, `PRESET_MIDI_MAX_MESSAGES`). Gespeichert beim Verlassen (auch Menü-Taste) mit `PresetStore_WriteMidi`. Überschreiben per Save Preset/CC0 behält die zusätzlichen Meldungen.
+- Laden sendet: Bank-PC + Preset-CC, Loop-Programme, zusätzliche Meldungen (über Echo-Filter, `LoopMidi_SendControlChange` / `LoopMidi_SendChannelProgram`), dann On/Bypass.
 
 ## Loop-MIDI (Effektgeräte)
 - Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "Program Change: Off/On", "On/Bypass n", "add On/Bypass".
@@ -31,7 +33,7 @@ Sprache mit dem Nutzer: Deutsch.
 - Empfang: On -> Gruppe an; Off nur wirksam, wenn dieser Schalter an war; gleicher Toggle zweimal -> Gruppe aus. Vom Gerät gemeldet = `ACTIVE_CONFIRMED`.
 - Senden nur bei Zustandswechsel durch den Router (Preset laden): an = letzte Schalter der zuletzt aktiven Gruppen (sonst Gruppe 1 Schalter 1), aus = Off der aktiven Schalter.
 - Eingabe per Encoder (CC, dann Wert; "empty" löscht den Schalter) oder MIDI Learn (Kette: nach gelernter Meldung wartet die nächste "empty"-Zeile). Einzelne Meldung ohne Off wird beim Verlassen zum Toggle. Gespeichert wird beim Verlassen der Midi-Seite (auch per Menü-Taste).
-- Loop-CCs haben Vorrang vor Preset-CCs (gleicher Kanal). Echo-Filter: eigene Loop-Meldungen innerhalb 200 ms werden ignoriert. Loop-MIDI wird auch bei offenem Menü verarbeitet (ohne Neuzeichnen).
+- Loop-CCs haben Vorrang vor Preset-CCs (gleicher Kanal). Echo-Filter: eigene Loop-Meldungen und zusätzliche Preset-Meldungen innerhalb 200 ms werden ignoriert (64 Einträge). Loop-MIDI wird auch bei offenem Menü verarbeitet (ohne Neuzeichnen).
 - Presets speichern den Loop-Status (Bit n = n-ter Loop in `uiItems`, max. 31, Bit 31 = gültig). Alte Presets (0) lassen die Loops unverändert.
 
 ## MIDI-Protokoll
@@ -49,7 +51,7 @@ Sprache mit dem Nutzer: Deutsch.
 ## Offen / nächste Schritte
 - Schaltplan im Preset (Platz reserviert), ADG2188-Treiber / `routing.c`.
 - Loop manuell ein/aus schalten (bisher nur per MIDI vom Effektgerät oder per Preset).
-- Loop-MIDI am Board testen (bisher nur Host-Tests).
+- Loop-MIDI und Preset-Midi am Board testen (bisher nur Host-Tests).
 - Copy-Funktion in Manage Presets.
 - MIDI-Empfang per DMA statt Byte-Interrupt.
 - Externer Speicher für 64×24 Presets (EEPROM reicht nur für 30).

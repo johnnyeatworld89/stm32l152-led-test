@@ -211,12 +211,38 @@ uint8_t LoopMidi_GetProgram(
 );
 
 /*
+ * MIDI channel (0 to 15) of the loop if Program Change is on for it,
+ * otherwise LOOP_MIDI_PROGRAM_NONE.
+ */
+uint8_t LoopMidi_GetProgramChannel(
+    uint8_t loopId
+);
+
+/*
  * Sends the program (0 to 127) to the effect device of the loop and
  * takes it as the current program. Does nothing if Program Change is
  * off for this loop.
  */
 void LoopMidi_SendProgram(
     uint8_t loopId,
+    uint8_t program
+);
+
+/*
+ * Sends a Control Change or Program Change that is not bound to a loop
+ * (additional MIDI messages of a preset). Like the messages of the
+ * loops it is remembered for the echo filter. A Program Change is taken
+ * as the current program of every loop with Program Change on and this
+ * channel.
+ */
+void LoopMidi_SendControlChange(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
+void LoopMidi_SendChannelProgram(
+    uint8_t channel,
     uint8_t program
 );
 

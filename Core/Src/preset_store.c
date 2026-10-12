@@ -8,7 +8,7 @@
 
 /*
  * 0x0000  bank names     64 * 16 bytes   (reserved, see GetBankName)
- * 0x0400  preset records 30 * 480 bytes
+ * 0x0400  preset records 30 * 480 bytes  (308 used, see RECORD_*)
  * 0x3C40  config block   960 bytes       (loop MIDI settings)
  */
 #define STORE_EEPROM_BASE            0x08080000UL
@@ -35,7 +35,10 @@
 #define RECORD_OFFSET_LOOP_STATUS    216U   /* see PRESET_LOOP_STATUS_VALID */
 #define RECORD_OFFSET_PROGRAM_MARKER 220U   /* RECORD_PROGRAM_MARKER        */
 #define RECORD_OFFSET_PROGRAMS       224U   /* see PRESET_LOOP_PROGRAM_VALID */
-#define RECORD_USED_SIZE             256U
+#define RECORD_OFFSET_MIDI_HEADER    256U   /* RECORD_MIDI_MARKER, count    */
+#define RECORD_OFFSET_MIDI           260U   /* PresetMidiMessage, 3 bytes   */
+#define RECORD_MIDI_MESSAGE_SIZE     3U
+#define RECORD_USED_SIZE             308U
 #define RECORD_USED_WORDS            (RECORD_USED_SIZE / 4U)
 
 #define RECORD_MAGIC                 0x5052U
@@ -46,6 +49,13 @@
  * anything there, so their programs are taken as "none".
  */
 #define RECORD_PROGRAM_MARKER        0x0050474CUL   /* "LGP", 0 */
+
+/*
+ * Marks the additional MIDI messages as written (low 24 bits, "MSG"),
+ * the high byte holds their number.
+ */
+#define RECORD_MIDI_MARKER           0x0047534DUL
+#define RECORD_MIDI_MARKER_MASK      0x00FFFFFFUL
 
 _Static_assert(
     (RECORD_OFFSET_NAME + PRESET_NAME_LENGTH) ==
@@ -59,8 +69,14 @@ _Static_assert(
 
 _Static_assert(
     (RECORD_OFFSET_PROGRAMS + PRESET_LOOP_PROGRAM_BYTES) ==
+        RECORD_OFFSET_MIDI_HEADER,
+    "loop program block size does not match MIDI header offset");
+
+_Static_assert(
+    (RECORD_OFFSET_MIDI +
+     (PRESET_MIDI_MAX_MESSAGES * RECORD_MIDI_MESSAGE_SIZE)) ==
         RECORD_USED_SIZE,
-    "loop program block size does not match used record size");
+    "MIDI message block size does not match used record size");
 
 _Static_assert(
     RECORD_USED_SIZE <= RECORD_SIZE,
@@ -203,6 +219,27 @@ static HAL_StatusTypeDef Store_WriteWord(
         address,
         value
     );
+}
+
+
+/* Returns 1 for a Control Change or Program Change with valid data. */
+static uint8_t Store_MidiMessageIsValid(
+    const PresetMidiMessage *message)
+{
+    uint8_t type = (uint8_t)(message->status & 0xF0U);
+
+    if (message->data1 > 127U ||
+        message->data2 > 127U)
+    {
+        return 0U;
+    }
+
+    if (type == 0xC0U)
+    {
+        return (message->data2 == 0U) ? 1U : 0U;
+    }
+
+    return (type == 0xB0U) ? 1U : 0U;
 }
 
 
@@ -371,6 +408,23 @@ PresetStoreStatus PresetStore_SavePreset(
     uint8_t *bytes = (uint8_t *)words;
 
     memset(words, 0, sizeof(words));
+
+    /*
+     * An overwritten preset keeps its additional MIDI messages.
+     */
+    if (overwriting)
+    {
+        const volatile uint8_t *record =
+            (const volatile uint8_t *)Store_RecordAddress(
+                (uint8_t)index);
+
+        for (uint16_t i = RECORD_OFFSET_MIDI_HEADER;
+             i < RECORD_USED_SIZE;
+             i++)
+        {
+            bytes[i] = record[i];
+        }
+    }
 
     bytes[0] = (uint8_t)(RECORD_MAGIC & 0xFFU);
     bytes[1] = (uint8_t)(RECORD_MAGIC >> 8);
@@ -619,6 +673,178 @@ PresetStoreStatus PresetStore_ReadLoopPrograms(
     for (uint8_t i = 0U; i < PRESET_LOOP_PROGRAM_BYTES; i++)
     {
         programs[i] = record[i];
+    }
+
+    return PRESET_STORE_OK;
+}
+
+
+PresetStoreStatus PresetStore_ReadMidiMessages(
+    uint8_t bank,
+    uint8_t slot,
+    PresetMidiMessage *messages,
+    uint8_t *count)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        messages == NULL ||
+        count == NULL)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    *count = 0U;
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    uint32_t address = Store_RecordAddress((uint8_t)index);
+    uint32_t header = *(const volatile uint32_t *)(
+        address + RECORD_OFFSET_MIDI_HEADER);
+    uint8_t stored = (uint8_t)(header >> 24);
+
+    if ((header & RECORD_MIDI_MARKER_MASK) != RECORD_MIDI_MARKER ||
+        stored > PRESET_MIDI_MAX_MESSAGES)
+    {
+        return PRESET_STORE_OK;
+    }
+
+    const volatile uint8_t *record =
+        (const volatile uint8_t *)(address + RECORD_OFFSET_MIDI);
+
+    for (uint8_t i = 0U; i < stored; i++)
+    {
+        PresetMidiMessage message;
+
+        message.status = record[(RECORD_MIDI_MESSAGE_SIZE * i)];
+        message.data1 = record[(RECORD_MIDI_MESSAGE_SIZE * i) + 1U];
+        message.data2 = record[(RECORD_MIDI_MESSAGE_SIZE * i) + 2U];
+
+        if (Store_MidiMessageIsValid(&message))
+        {
+            messages[(*count)++] = message;
+        }
+    }
+
+    return PRESET_STORE_OK;
+}
+
+
+PresetStoreStatus PresetStore_WriteMidi(
+    uint8_t bank,
+    uint8_t slot,
+    const uint8_t *loopPrograms,
+    const PresetMidiMessage *messages,
+    uint8_t count)
+{
+    if (bank >= PRESET_BANK_COUNT ||
+        slot >= PRESET_SLOTS_PER_BANK ||
+        loopPrograms == NULL ||
+        (messages == NULL && count > 0U) ||
+        count > PRESET_MIDI_MAX_MESSAGES)
+    {
+        return PRESET_STORE_ERR_PARAM;
+    }
+
+    for (uint8_t i = 0U; i < count; i++)
+    {
+        if (!Store_MidiMessageIsValid(&messages[i]))
+        {
+            return PRESET_STORE_ERR_PARAM;
+        }
+    }
+
+    int16_t index = Store_FindRecord(bank, slot);
+
+    if (index < 0)
+    {
+        return PRESET_STORE_ERR_NOT_FOUND;
+    }
+
+    /*
+     * Image of the record from the program marker to the end of the
+     * used part.
+     */
+    uint32_t words[RECORD_USED_WORDS];
+    uint8_t *bytes = (uint8_t *)words;
+
+    memset(words, 0, sizeof(words));
+
+    words[RECORD_OFFSET_PROGRAM_MARKER / 4U] = RECORD_PROGRAM_MARKER;
+    memcpy(&bytes[RECORD_OFFSET_PROGRAMS], loopPrograms,
+           PRESET_LOOP_PROGRAM_BYTES);
+
+    words[RECORD_OFFSET_MIDI_HEADER / 4U] =
+        RECORD_MIDI_MARKER | ((uint32_t)count << 24);
+
+    for (uint8_t i = 0U; i < count; i++)
+    {
+        uint16_t offset = (uint16_t)(RECORD_OFFSET_MIDI +
+            (RECORD_MIDI_MESSAGE_SIZE * i));
+
+        bytes[offset] = messages[i].status;
+        bytes[offset + 1U] = messages[i].data1;
+        bytes[offset + 2U] = messages[i].data2;
+    }
+
+    /*
+     * Write sequence: clear both markers, write the data, write the
+     * markers last.
+     */
+    uint32_t address = Store_RecordAddress((uint8_t)index);
+
+    if (HAL_FLASHEx_DATAEEPROM_Unlock() != HAL_OK)
+    {
+        return PRESET_STORE_ERR_WRITE;
+    }
+
+    HAL_StatusTypeDef status = Store_WriteWord(
+        address + RECORD_OFFSET_PROGRAM_MARKER, 0U);
+
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(
+            address + RECORD_OFFSET_MIDI_HEADER, 0U);
+    }
+
+    for (uint16_t offset = RECORD_OFFSET_PROGRAMS;
+         offset < RECORD_USED_SIZE && status == HAL_OK;
+         offset = (uint16_t)(offset + 4U))
+    {
+        if (offset == RECORD_OFFSET_MIDI_HEADER)
+        {
+            continue;
+        }
+
+        status = Store_WriteWord(address + offset, words[offset / 4U]);
+    }
+
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(
+            address + RECORD_OFFSET_MIDI_HEADER,
+            words[RECORD_OFFSET_MIDI_HEADER / 4U]);
+    }
+
+    if (status == HAL_OK)
+    {
+        status = Store_WriteWord(
+            address + RECORD_OFFSET_PROGRAM_MARKER,
+            RECORD_PROGRAM_MARKER);
+    }
+
+    HAL_FLASHEx_DATAEEPROM_Lock();
+
+    if (status != HAL_OK ||
+        memcmp((const void *)(address + RECORD_OFFSET_PROGRAM_MARKER),
+               &bytes[RECORD_OFFSET_PROGRAM_MARKER],
+               RECORD_USED_SIZE - RECORD_OFFSET_PROGRAM_MARKER) != 0)
+    {
+        return PRESET_STORE_ERR_WRITE;
     }
 
     return PRESET_STORE_OK;
