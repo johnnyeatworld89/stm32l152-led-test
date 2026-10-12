@@ -25,8 +25,8 @@ Sprache mit dem Nutzer: Deutsch.
 - Manage Presets: Rename bank, Load / Rename / Delete (Copy bewusst weggelassen, später).
 
 ## Loop-MIDI (Effektgeräte)
-- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "Programm Change: Off/On", "On/Bypass n", "add On/Bypass".
-- Programm Change (je Loop, Bit 7 des Kanal-Bytes im Config-Block): PCs auf dem Loop-Kanal = aktuelles Programm des Geräts (Vorrang vor Bank-PC, Echo-Filter wie bei CCs). Presets speichern je Loop `0x80 | Programm` (0 = keins, alte Presets ohne Marker = keins); beim Laden zuerst PCs, dann On/Bypass. Unterschiedliches Programm verhindert den Rückkopplungsschutz-Treffer (`UI_PresetMatchesCurrent`).
+- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "Program Change: Off/On", "On/Bypass n", "add On/Bypass".
+- Program Change (je Loop, Bit 7 des Kanal-Bytes im Config-Block): PCs auf dem Loop-Kanal = aktuelles Programm des Geräts (Vorrang vor Bank-PC, Echo-Filter wie bei CCs). Presets speichern je Loop `0x80 | Programm` (0 = keins, alte Presets ohne Marker = keins); beim Laden zuerst PCs, dann On/Bypass. Unterschiedliches Programm verhindert den Rückkopplungsschutz-Treffer (`UI_PresetMatchesCurrent`).
 - Je Loop max. 8 Gruppen à max. 8 Schalter; Schalter = 2 CC-Meldungen (On/Off, gleich = Toggle). In einer Gruppe max. ein Schalter an, Loop aktiv solange eine Gruppe an.
 - Empfang: On -> Gruppe an; Off nur wirksam, wenn dieser Schalter an war; gleicher Toggle zweimal -> Gruppe aus. Vom Gerät gemeldet = `ACTIVE_CONFIRMED`.
 - Senden nur bei Zustandswechsel durch den Router (Preset laden): an = letzte Schalter der zuletzt aktiven Gruppen (sonst Gruppe 1 Schalter 1), aus = Off der aktiven Schalter.

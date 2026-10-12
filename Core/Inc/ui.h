@@ -342,7 +342,7 @@ void UI_LoopMidiControlChange(
 );
 
 /*
- * Program Change der Effektgeraete (Loops mit "Programm Change: On").
+ * Program Change der Effektgeraete (Loops mit "Program Change: On").
  * UI_LoopMidiClaimsProgram prueft, ob die Meldung zu einem Loop gehoert,
  * UI_LoopMidiProgramChange merkt sich das Programm fuer die Presets.
  */

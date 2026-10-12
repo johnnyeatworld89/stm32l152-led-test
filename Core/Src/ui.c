@@ -6856,7 +6856,7 @@ static void UI_MenuManagePresets(void)
  * Zwei ganzseitige Listen im Stil der Preset-Liste:
  *
  *   Midi-Seite:        Midi Channel: 1
- *                      Programm Change: Off
+ *                      Program Change: Off
  *                      On/Bypass 1
  *                      ...
  *                      add On/Bypass
@@ -7121,8 +7121,8 @@ static void UI_LmBuildRowText(
             UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY,
                 uiLmConfig.programChange ?
-                    "Programm Change: On" :
-                    "Programm Change: Off");
+                    "Program Change: On" :
+                    "Program Change: Off");
         }
         else if (row < (uint8_t)UI_LM_FIRST_GROUP_ROW +
                        uiLmConfig.groupCount)
