@@ -184,6 +184,32 @@ void LoopMidi_SetLoopState(
 );
 
 /*
+ * On/Bypass state of a loop for the presets: 4 bits per group (bits 4g
+ * to 4g+3 = group g), 0 = group off, k = switch k (1 to 8) on. A loop
+ * without groups returns 0.
+ */
+uint32_t LoopMidi_GetGroupState(
+    uint8_t loopId
+);
+
+/*
+ * Puts the effect device of the loop into the state (format as above):
+ * a group that is off but should be on gets the On (or Toggle) of the
+ * switch, one on with another switch gets the On of the new switch, one
+ * on that should be off gets the Off (or Toggle) of its switch. Groups
+ * already in the wanted state get nothing (a Toggle would switch them
+ * back). Switch numbers the group does not have leave the group
+ * unchanged.
+ *
+ * Returns -1 for a loop without groups, otherwise the new state of the
+ * loop (0 = all groups off, 1 = a group is on).
+ */
+int8_t LoopMidi_ApplyGroupState(
+    uint8_t loopId,
+    uint32_t state
+);
+
+/*
  * Returns 1 if a Program Change on this channel belongs to a loop with
  * Program Change on, or is an echo of one sent shortly before. Does not
  * change anything.
@@ -211,12 +237,38 @@ uint8_t LoopMidi_GetProgram(
 );
 
 /*
+ * MIDI channel (0 to 15) of the loop if Program Change is on for it,
+ * otherwise LOOP_MIDI_PROGRAM_NONE.
+ */
+uint8_t LoopMidi_GetProgramChannel(
+    uint8_t loopId
+);
+
+/*
  * Sends the program (0 to 127) to the effect device of the loop and
  * takes it as the current program. Does nothing if Program Change is
  * off for this loop.
  */
 void LoopMidi_SendProgram(
     uint8_t loopId,
+    uint8_t program
+);
+
+/*
+ * Sends a Control Change or Program Change that is not bound to a loop
+ * (additional MIDI messages of a preset). Like the messages of the
+ * loops it is remembered for the echo filter. A Program Change is taken
+ * as the current program of every loop with Program Change on and this
+ * channel.
+ */
+void LoopMidi_SendControlChange(
+    uint8_t channel,
+    uint8_t controller,
+    uint8_t value
+);
+
+void LoopMidi_SendChannelProgram(
+    uint8_t channel,
     uint8_t program
 );
 
