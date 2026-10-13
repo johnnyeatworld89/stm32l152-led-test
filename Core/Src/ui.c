@@ -9656,6 +9656,79 @@ void UI_LoopMidiProgramChange(
 }
 
 
+/* -------------------------------------------------------------------------- */
+/* Loop-Schalter am Router (Aufruf aus main.c)                                */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Index des loopNumber-ten Loops (0 = L01) in uiItems, -1 wenn es ihn
+ * nicht gibt. Zaehlung wie in UI_LoopStatusBits.
+ */
+static int16_t UI_LoopIndexByNumber(uint8_t loopNumber)
+{
+    uint8_t number = 0U;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type != UI_ITEM_LOOP)
+        {
+            continue;
+        }
+
+        if (number == loopNumber)
+        {
+            return (int16_t)i;
+        }
+
+        number++;
+    }
+
+    return -1;
+}
+
+
+/*
+ * Schaltet einen Loop am Router um (z.B. per Fussschalter). Wie beim
+ * Laden eines Presets bekommt das Effektgeraet die passenden MIDI-Befehle,
+ * eingeschaltet gilt der Loop als unbestaetigt aktiv. Das geschieht auch
+ * bei offenem Menue (ohne Neuzeichnen, wie bei Loop-MIDI).
+ */
+uint8_t UI_LoopToggle(uint8_t loopNumber)
+{
+    int16_t index = UI_LoopIndexByNumber(loopNumber);
+
+    if (index < 0)
+    {
+        return 0U;
+    }
+
+    uint8_t active =
+        (uiItems[index].loopStatus == UI_LOOP_STATUS_OFF) ? 1U : 0U;
+
+    UI_LoopSetActive(index, active, 0U);
+
+    if (uiMode == UI_MODE_STATE_VIEW)
+    {
+        UI_RedrawItem(index);
+    }
+
+    return 1U;
+}
+
+
+UI_LoopStatus UI_LoopGetStatus(uint8_t loopNumber)
+{
+    int16_t index = UI_LoopIndexByNumber(loopNumber);
+
+    if (index < 0)
+    {
+        return UI_LOOP_STATUS_OFF;
+    }
+
+    return uiItems[index].loopStatus;
+}
+
+
 static void UI_DrawMenuRow(
     uint8_t row,
     const char *text)

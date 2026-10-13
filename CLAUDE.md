@@ -6,7 +6,8 @@ Sprache mit dem Nutzer: Deutsch.
 
 ## Hardware / Build
 - STM32L152RE Nucleo, HAL, CMake. Neue .c-Dateien in CMakeLists.txt eintragen.
-- SPI1: Display ST7735 + MCP23S17 (Tasten Shift/Return/Menu). Dazu Drehencoder mit Taster.
+- SPI1: Display ST7735 + MCP23S17 (Tasten Shift GPB7/Return GPB6/Menu GPA0, Loop-1-Fußschalter GPB5). Dazu Drehencoder mit Taster.
+- Status-LED Loop 1: WS2812B an PB15 (SPI2_MOSI, Morpho CN10-26), SPI2 allein mit 4 MHz, 4 SPI-Bits je LED-Bit, Treiber `Libraries/WS2812B`. Aus / gelb = aktiv unbestätigt / grün = bestätigt. Pegelwandler 3,3 → 5 V empfohlen.
 - Eingabe: TIM6-Interrupt tastet Eingänge ab, Ring-Puffer (SPSC) -> Main-Loop.
 - MIDI: USART1 PA9 (TX) / PA10 (RX), 31250 Bd (`MIDI_UART_PORT` in midi.h; 2 = PA2/PA3 kollidiert mit ST-LINK, SB13/SB14).
   Opto-Eingang H11L1, TRS Typ A.
@@ -52,7 +53,7 @@ Sprache mit dem Nutzer: Deutsch.
 
 ## Offen / nächste Schritte
 - Schaltplan im Preset (Platz reserviert), ADG2188-Treiber / `routing.c`.
-- Loop manuell ein/aus schalten (bisher nur per MIDI vom Effektgerät oder per Preset).
+- Loop manuell ein/aus schalten: Loop 1 per Fußschalter GPB5 (`UI_LoopToggle`, sendet On/Bypass wie beim Preset-Laden); weitere Loops / Bedienung im Menü offen.
 - Loop-MIDI und Preset-Midi am Board testen (bisher nur Host-Tests).
 - Copy-Funktion in Manage Presets.
 - MIDI-Empfang per DMA statt Byte-Interrupt.

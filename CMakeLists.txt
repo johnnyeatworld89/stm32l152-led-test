@@ -34,6 +34,7 @@ Libraries/ost4m18132a/ost4ml8132a.c
 
 Libraries/MCP23S17/mcp23s17.c
 Libraries/Midi/midi.c
+Libraries/WS2812B/ws2812b.c
 
 
 
@@ -48,6 +49,7 @@ target_include_directories(firmware PRIVATE
     Libraries/ost4m18132a
     Libraries/MCP23S17
     Libraries/Midi
+    Libraries/WS2812B
 
 
     Drivers/STM32L1xx_HAL_Driver/Inc

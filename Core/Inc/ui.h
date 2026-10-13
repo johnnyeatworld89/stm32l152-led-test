@@ -356,4 +356,18 @@ void UI_LoopMidiProgramChange(
     uint8_t program
 );
 
+/*
+ * Loop-Schalter am Router (loopNumber 0 = L01, Zaehlung wie im Preset).
+ * UI_LoopToggle schaltet den Loop um und sendet dem Effektgeraet die
+ * passenden MIDI-Befehle (Rueckgabe 0, wenn es den Loop nicht gibt).
+ * UI_LoopGetStatus liefert den Status fuer die Status-LED.
+ */
+uint8_t UI_LoopToggle(
+    uint8_t loopNumber
+);
+
+UI_LoopStatus UI_LoopGetStatus(
+    uint8_t loopNumber
+);
+
 #endif
