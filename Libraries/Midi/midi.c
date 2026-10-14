@@ -16,6 +16,15 @@ static uint8_t midi_message[3];
 static uint8_t midi_message_length = 0;
 static uint8_t midi_message_expected = 0;
 
+/*
+ * Diagnostics (inspect via SWD):
+ * bytes dropped because of a frame, noise or parity error, overruns,
+ * and receptions restarted by MIDI_Poll().
+ */
+volatile uint16_t debugMidiRxErrors = 0;
+volatile uint16_t debugMidiRxOverruns = 0;
+volatile uint16_t debugMidiRxRestarts = 0;
+
 /* Forward declarations */
 static uint8_t MIDI_MessageLength(uint8_t status);
 static void MIDI_ProcessByte(uint8_t byte);
@@ -45,6 +54,24 @@ HAL_StatusTypeDef MIDI_Init(void)
 HAL_StatusTypeDef MIDI_StartReceive(void)
 {
     return HAL_UART_Receive_IT(&hMIDI_UART, &midi_rx_byte, 1);
+}
+
+/*
+ * HAL_UART_Transmit() locks the UART handle for a moment. If a byte is
+ * received just then, the re-arm in the receive interrupt fails with
+ * HAL_BUSY and reception would stop for good. The main loop therefore
+ * re-arms reception when it is not running.
+ */
+void MIDI_Poll(void)
+{
+    if (hMIDI_UART.RxState == HAL_UART_STATE_READY)
+    {
+        if (HAL_UART_Receive_IT(&hMIDI_UART, &midi_rx_byte, 1) == HAL_OK &&
+            debugMidiRxRestarts < 0xFFFFU)
+        {
+            debugMidiRxRestarts++;
+        }
+    }
 }
 
 HAL_StatusTypeDef MIDI_SendByte(uint8_t byte)
@@ -172,10 +199,44 @@ void MIDI_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         return;
     }
 
-    MIDI_ProcessByte(midi_rx_byte);
+    uint32_t error = huart->ErrorCode;
+
+    if ((error & (HAL_UART_ERROR_FE | HAL_UART_ERROR_NE |
+                  HAL_UART_ERROR_PE)) != 0U)
+    {
+        /*
+         * Corrupted byte: drop it and the message it belongs to, a wrong
+         * value would switch the wrong loop or nothing at all.
+         */
+        if (debugMidiRxErrors < 0xFFFFU)
+        {
+            debugMidiRxErrors++;
+        }
+
+        MIDI_ResetParser();
+    }
+    else
+    {
+        if ((error & HAL_UART_ERROR_ORE) != 0U)
+        {
+            /*
+             * A byte before this one was lost: start over, this byte
+             * is used only if it is a status byte.
+             */
+            if (debugMidiRxOverruns < 0xFFFFU)
+            {
+                debugMidiRxOverruns++;
+            }
+
+            MIDI_ResetParser();
+        }
+
+        MIDI_ProcessByte(midi_rx_byte);
+    }
 
     /*
-     * Re-arm reception for the next MIDI byte.
+     * Re-arm reception for the next MIDI byte. If this fails because
+     * the handle is locked by a transmission, MIDI_Poll() re-arms it.
      */
     HAL_UART_Receive_IT(&hMIDI_UART, &midi_rx_byte, 1);
 }

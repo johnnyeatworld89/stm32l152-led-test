@@ -67,6 +67,11 @@ HAL_StatusTypeDef MIDI_Init(void);
 HAL_StatusTypeDef MIDI_StartReceive(void);
 
 /* Send one raw MIDI byte. */
+/*
+ * Call regularly from the main loop: restarts reception if it stopped.
+ */
+void MIDI_Poll(void);
+
 HAL_StatusTypeDef MIDI_SendByte(uint8_t byte);
 
 /* Send a complete MIDI message. */

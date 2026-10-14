@@ -7,7 +7,7 @@ Sprache mit dem Nutzer: Deutsch.
 ## Hardware / Build
 - STM32L152RE Nucleo, HAL, CMake. Neue .c-Dateien in CMakeLists.txt eintragen.
 - SPI1: Display ST7735 + MCP23S17 (Tasten Shift GPB7/Return GPB6/Menu GPA0, Loop-1-Fußschalter GPB5). Dazu Drehencoder mit Taster.
-- Status-LED Loop 1: WS2812B an PB15 (SPI2_MOSI, Morpho CN10-26), SPI2 allein mit 4 MHz, 4 SPI-Bits je LED-Bit, Treiber `Libraries/WS2812B`. Aus / gelb = aktiv unbestätigt / grün = bestätigt. Pegelwandler 3,3 → 5 V empfohlen.
+- Status-LED Loop 1: WS2812B an PB15 (SPI2_MOSI, Morpho CN10-26), SPI2 allein mit 4 MHz, 4 SPI-Bits je LED-Bit, Treiber `Libraries/WS2812B`. Aus / gelb = aktiv unbestätigt / grün = bestätigt, alle 100 ms neu gesendet. Pegelwandler 3,3 → 5 V empfohlen.
 - Eingabe: TIM6-Interrupt tastet Eingänge ab, Ring-Puffer (SPSC) -> Main-Loop.
 - MIDI: USART1 PA9 (TX) / PA10 (RX), 31250 Bd (`MIDI_UART_PORT` in midi.h; 2 = PA2/PA3 kollidiert mit ST-LINK, SB13/SB14).
   Opto-Eingang H11L1, TRS Typ A.
@@ -15,7 +15,7 @@ Sprache mit dem Nutzer: Deutsch.
 ## Dateien
 - `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, PRESET_MIDI, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
 - `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (380 belegt: Loop-Status-Bitmap an Offset 216, Loop-Programme an 220 = Marker + 224 = 32 Byte, zusätzliche MIDI-Meldungen an 256 = Marker/Anzahl + 260 = 16 × 3 Byte, On/Bypass-Zustände an 308 = Marker + 312 = Loop-Maske + 316 = max. 16 × 4 Byte; Rest 100 Byte reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
-- `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`.
+- `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`. Bytes mit Frame-/Noise-/Parity-Fehler werden verworfen (Parser-Reset), `MIDI_Poll()` in der Main-Loop startet den Empfang neu, falls das Re-Arm im Interrupt an der HAL-Sperre von `HAL_UART_Transmit` scheitert. Zähler `debugMidiRx*`.
 - `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop. Queue enthält rohe CCs; Zuordnung Loop/Preset erst in der Main-Loop.
 - `loop_midi.c/.h` – MIDI-Steuerung der Effektgeräte in den Loops: Konfiguration (Kanal, On/Bypass-Gruppen), Gruppenlogik, Senden, Echo-Filter, EEPROM-Serialisierung.
 - `font5x7.c` – Font: kein `.`-Glyph (`,` vorhanden), Kleinbuchstaben werden groß dargestellt, unbekannte Zeichen = Kästchen.
