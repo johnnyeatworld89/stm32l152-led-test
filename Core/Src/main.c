@@ -12,6 +12,7 @@
 #include "ui.h"
 #include "mcp23s17.h"
 #include "midi.h"
+#include "ws2812b.h"
 
 #include "midi_presets.h"
 #include "loop_midi.h"
@@ -42,11 +43,27 @@
 #define MENU_MCP_PORT                  MCP23S17_PORT_A
 #define MENU_MCP_PIN                   0U
 
+/*
+ * Loop 1 switch: MCP23S17 GPB5 -> footswitch (momentary) -> GND.
+ * Every press toggles loop 1 (L01).
+ */
+#define LOOP1_MCP_PORT                 MCP23S17_PORT_B
+#define LOOP1_MCP_PIN                  5U
+#define LOOP1_NUMBER                   0U      /* 0 = L01 */
+
 
 #define ENCODER_BUTTON_DEBOUNCE_MS     30U
 #define SHIFT_DEBOUNCE_MS              30U
 #define RETURN_DEBOUNCE_MS             30U
 #define MENU_DEBOUNCE_MS               30U
+#define LOOP1_DEBOUNCE_MS              30U
+
+/*
+ * Status LED of loop 1 (WS2812B, see ws2812b.h): off, yellow = active
+ * without feedback from the effect device, green = confirmed by the
+ * effect device. Brightness 0 to 255 per colour.
+ */
+#define LOOP1_LED_BRIGHTNESS           64U
 
 /*
  * Input sampling (rotary encoder and encoder button).
@@ -146,6 +163,10 @@ static uint8_t menuRawState = 0U;
 static uint8_t menuStableState = 0U;
 static uint32_t menuLastChangeTick = 0U;
 
+static uint8_t loop1RawState = 0U;
+static uint8_t loop1StableState = 0U;
+static uint32_t loop1LastChangeTick = 0U;
+
 static uint8_t controlButtonsInitialized = 0U;
 
 
@@ -217,6 +238,7 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void);
 static void Shift_Update(void);
 static uint8_t Shift_IsPressed(void);
 static void ControlButtons_Update(void);
+static void Loop1Led_Update(void);
 
 static void Error_Handler(void);
 
@@ -649,6 +671,30 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
     }
 
     /*
+     * Loop 1 switch GPB5: active-low input with internal pull-up.
+     */
+    status = MCP23S17_ConfigurePinAsInput(
+        &mcp23s17_1, LOOP1_MCP_PORT, LOOP1_MCP_PIN);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = MCP23S17_SetInputPolarity(
+        &mcp23s17_1, LOOP1_MCP_PORT, LOOP1_MCP_PIN, 0U);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = MCP23S17_SetPullUp(
+        &mcp23s17_1, LOOP1_MCP_PORT, LOOP1_MCP_PIN, 1U);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    /*
      * Read back configuration registers.
      *
      * Expected:
@@ -768,6 +814,19 @@ static HAL_StatusTypeDef MCP23S17_ApplicationInit(void)
     menuRawState = (menuPinState == 0U) ? 1U : 0U;
     menuStableState = menuRawState;
     menuLastChangeTick = HAL_GetTick();
+
+    uint8_t loop1PinState = 1U;
+    status = MCP23S17_ReadPin(
+        &mcp23s17_1, LOOP1_MCP_PORT, LOOP1_MCP_PIN, &loop1PinState);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    /* A switch held down at power-up does not toggle the loop. */
+    loop1RawState = (loop1PinState == 0U) ? 1U : 0U;
+    loop1StableState = loop1RawState;
+    loop1LastChangeTick = HAL_GetTick();
 
     controlButtonsInitialized = 1U;
 
@@ -930,6 +989,8 @@ static void ControlButtons_Update(void)
         (gpioB & (uint8_t)(1U << RETURN_MCP_PIN)) ? 0U : 1U;
     uint8_t currentMenuState =
         (gpioA & (uint8_t)(1U << MENU_MCP_PIN)) ? 0U : 1U;
+    uint8_t currentLoop1State =
+        (gpioB & (uint8_t)(1U << LOOP1_MCP_PIN)) ? 0U : 1U;
 
     if (currentReturnState != returnRawState)
     {
@@ -962,6 +1023,73 @@ static void ControlButtons_Update(void)
             UI_HandleMenuButton();
         }
     }
+
+    if (currentLoop1State != loop1RawState)
+    {
+        loop1RawState = currentLoop1State;
+        loop1LastChangeTick = currentTick;
+    }
+
+    if ((currentTick - loop1LastChangeTick) >= LOOP1_DEBOUNCE_MS &&
+        loop1StableState != loop1RawState)
+    {
+        loop1StableState = loop1RawState;
+        if (loop1StableState)
+        {
+            (void)UI_LoopToggle(LOOP1_NUMBER);
+        }
+    }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Loop 1 status LED                                                          */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Sends the colour only when the loop status changed (by the switch,
+ * a preset or MIDI from the effect device). The status cannot change
+ * twice within 2 ms, so the WS2812B always gets its latch pause.
+ */
+static void Loop1Led_Update(void)
+{
+    static uint8_t ledInitialized = 0U;
+    static UI_LoopStatus ledStatus = UI_LOOP_STATUS_OFF;
+    static uint32_t ledLastTick = 0U;
+
+    UI_LoopStatus status = UI_LoopGetStatus(LOOP1_NUMBER);
+    uint32_t currentTick = HAL_GetTick();
+
+    if (ledInitialized && status == ledStatus)
+    {
+        return;
+    }
+
+    if (ledInitialized && (currentTick - ledLastTick) < 2U)
+    {
+        return;
+    }
+
+    switch (status)
+    {
+        case UI_LOOP_STATUS_ACTIVE_CONFIRMED:
+            WS2812B_SetColor(0U, LOOP1_LED_BRIGHTNESS, 0U);
+            break;
+
+        case UI_LOOP_STATUS_ACTIVE_UNCONFIRMED:
+            WS2812B_SetColor(
+                LOOP1_LED_BRIGHTNESS, LOOP1_LED_BRIGHTNESS, 0U);
+            break;
+
+        case UI_LOOP_STATUS_OFF:
+        default:
+            WS2812B_SetColor(0U, 0U, 0U);
+            break;
+    }
+
+    ledStatus = status;
+    ledLastTick = currentTick;
+    ledInitialized = 1U;
 }
 
 
@@ -1040,6 +1168,12 @@ int main(void)
 
     UI_Draw();
 
+    /*
+     * Loop 1 status LED (WS2812B on PB15 / SPI2).
+     */
+    WS2812B_Init();
+    Loop1Led_Update();
+
 
     /*
      * Initialize the MCP23S17 after the UI has
@@ -1081,7 +1215,7 @@ int main(void)
     while (1)
     {
         /*
-         * Poll the MCP23S17 buttons (Shift, Return, Menu).
+         * Poll the MCP23S17 buttons (Shift, Return, Menu, Loop 1).
          *
          * These are on SPI1, which is shared with the display,
          * so they cannot be read from an interrupt.
@@ -1094,6 +1228,8 @@ int main(void)
          */
         Input_ProcessEvents();
    MidiPresets_Process();
+
+        Loop1Led_Update();
     }
 }
 
