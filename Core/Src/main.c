@@ -66,6 +66,12 @@
 #define LOOP1_LED_BRIGHTNESS           64U
 
 /*
+ * The colour is also re-sent at this interval, so a frame the LED did
+ * not take (interference, marginal 3.3 V level at DIN) is corrected.
+ */
+#define LOOP1_LED_REFRESH_MS           100U
+
+/*
  * Input sampling (rotary encoder and encoder button).
  *
  * TIM6 raises an interrupt at INPUT_SAMPLE_RATE_HZ. The interrupt
@@ -1047,9 +1053,10 @@ static void ControlButtons_Update(void)
 /* -------------------------------------------------------------------------- */
 
 /*
- * Sends the colour only when the loop status changed (by the switch,
- * a preset or MIDI from the effect device). The status cannot change
- * twice within 2 ms, so the WS2812B always gets its latch pause.
+ * Sends the colour when the loop status changed (by the switch, a
+ * preset or MIDI from the effect device) and every LOOP1_LED_REFRESH_MS.
+ * At least 2 ms lie between two frames, so the WS2812B always gets its
+ * latch pause.
  */
 static void Loop1Led_Update(void)
 {
@@ -1060,7 +1067,8 @@ static void Loop1Led_Update(void)
     UI_LoopStatus status = UI_LoopGetStatus(LOOP1_NUMBER);
     uint32_t currentTick = HAL_GetTick();
 
-    if (ledInitialized && status == ledStatus)
+    if (ledInitialized && status == ledStatus &&
+        (currentTick - ledLastTick) < LOOP1_LED_REFRESH_MS)
     {
         return;
     }
@@ -1227,7 +1235,8 @@ int main(void)
          * Process the encoder events queued by the interrupt.
          */
         Input_ProcessEvents();
-   MidiPresets_Process();
+        MIDI_Poll();
+        MidiPresets_Process();
 
         Loop1Led_Update();
     }
