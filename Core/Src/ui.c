@@ -8322,6 +8322,7 @@ static void UI_MenuManagePresets(void)
  *
  *   Midi-Seite:        Midi Channel: 1
  *                      Program Change: Off
+ *                      Feedback: State    (State / Toggle)
  *                      On/Bypass 1
  *                      ...
  *                      add On/Bypass
@@ -8345,13 +8346,15 @@ static void UI_MenuManagePresets(void)
 /* Zeilen der Midi-Seite, danach die Gruppen und "add On/Bypass". */
 #define UI_LM_CHANNEL_ROW             0
 #define UI_LM_PROGRAM_ROW             1
-#define UI_LM_FIRST_GROUP_ROW         2
+#define UI_LM_FEEDBACK_ROW            2
+#define UI_LM_FIRST_GROUP_ROW         3
 
 typedef enum
 {
     UI_LM_EDIT_NONE = 0,
     UI_LM_EDIT_CHANNEL,
     UI_LM_EDIT_PROGRAM,
+    UI_LM_EDIT_FEEDBACK,
     UI_LM_EDIT_CONTROLLER,
     UI_LM_EDIT_VALUE
 
@@ -8393,6 +8396,7 @@ static uint8_t uiLmScrollTop = 0U;
 static UI_LmEdit uiLmEdit = UI_LM_EDIT_NONE;
 static uint8_t uiLmChannelBackup = 0U;
 static uint8_t uiLmProgramBackup = 0U;
+static uint8_t uiLmFeedbackBackup = 0U;
 
 /* Werte waehrend der Eingabe einer Meldung, Controller -1 = empty. */
 static int16_t uiLmEditController = -1;
@@ -8430,7 +8434,8 @@ static uint8_t UI_LmIsLearning(void)
             (uiMenuPage == UI_MENU_PAGE_LOOP_MIDI ||
              uiMenuPage == UI_MENU_PAGE_LOOP_MIDI_GROUP) &&
             uiLmEdit != UI_LM_EDIT_NONE &&
-            uiLmEdit != UI_LM_EDIT_PROGRAM) ? 1U : 0U;
+            uiLmEdit != UI_LM_EDIT_PROGRAM &&
+            uiLmEdit != UI_LM_EDIT_FEEDBACK) ? 1U : 0U;
 }
 
 
@@ -8488,7 +8493,7 @@ static uint8_t UI_LmRowCount(void)
         return uiLmRowCount;
     }
 
-    /* Kanal, Program Change, Gruppen, "add On/Bypass" */
+    /* Kanal, Program Change, Feedback, Gruppen, "add On/Bypass" */
     return (uint8_t)((uint8_t)UI_LM_FIRST_GROUP_ROW +
         uiLmConfig.groupCount +
         ((uiLmConfig.groupCount < LOOP_MIDI_MAX_GROUPS) ? 1U : 0U));
@@ -8588,6 +8593,14 @@ static void UI_LmBuildRowText(
                 uiLmConfig.programChange ?
                     "Program Change: On" :
                     "Program Change: Off");
+        }
+        else if (row == UI_LM_FEEDBACK_ROW)
+        {
+            UI_SaveAppendText(
+                text, 0U, UI_SAVE_TEXT_CAPACITY,
+                uiLmConfig.feedbackToggle ?
+                    "Feedback: Toggle" :
+                    "Feedback: State");
         }
         else if (row < (uint8_t)UI_LM_FIRST_GROUP_ROW +
                        uiLmConfig.groupCount)
@@ -8797,6 +8810,11 @@ static void UI_LmDrawStatus(void)
     {
         UI_SaveAppendText(
             text, 0U, UI_SAVE_TEXT_CAPACITY, "Turn: On / Off");
+    }
+    else if (uiLmEdit == UI_LM_EDIT_FEEDBACK)
+    {
+        UI_SaveAppendText(
+            text, 0U, UI_SAVE_TEXT_CAPACITY, "Turn: State / Toggle");
     }
     else if (uiLmEdit != UI_LM_EDIT_NONE)
     {
@@ -9216,6 +9234,10 @@ static LoopMidiStatus UI_LmFinish(void)
     {
         uiLmConfig.programChange = uiLmProgramBackup;
     }
+    else if (uiLmEdit == UI_LM_EDIT_FEEDBACK)
+    {
+        uiLmConfig.feedbackToggle = uiLmFeedbackBackup;
+    }
 
     if (UI_LmIsGroupPage())
     {
@@ -9350,6 +9372,11 @@ static void UI_LmHandleEncoder(int8_t direction)
             UI_LmDrawRow((uint8_t)uiLmRow);
             return;
 
+        case UI_LM_EDIT_FEEDBACK:
+            uiLmConfig.feedbackToggle = (direction > 0) ? 1U : 0U;
+            UI_LmDrawRow((uint8_t)uiLmRow);
+            return;
+
         case UI_LM_EDIT_CONTROLLER:
             uiLmEditController = UI_LmClamp(
                 (int16_t)(uiLmEditController + direction), -1, 127);
@@ -9403,6 +9430,17 @@ static void UI_LmHandleEnter(void)
             return;
         }
 
+        if (uiLmEdit == UI_LM_EDIT_FEEDBACK)
+        {
+            if (uiLmConfig.feedbackToggle != uiLmFeedbackBackup)
+            {
+                uiLmDirty = 1U;
+            }
+
+            UI_LmEndEdit();
+            return;
+        }
+
         if (uiLmRow == UI_LM_CHANNEL_ROW)
         {
             uiLmChannelBackup = uiLmConfig.channel;
@@ -9417,6 +9455,16 @@ static void UI_LmHandleEnter(void)
         {
             uiLmProgramBackup = uiLmConfig.programChange;
             uiLmEdit = UI_LM_EDIT_PROGRAM;
+            uiLmStatus = UI_LM_STATUS_NONE;
+            UI_LmDrawRow((uint8_t)uiLmRow);
+            UI_LmDrawStatus();
+            return;
+        }
+
+        if (uiLmRow == UI_LM_FEEDBACK_ROW)
+        {
+            uiLmFeedbackBackup = uiLmConfig.feedbackToggle;
+            uiLmEdit = UI_LM_EDIT_FEEDBACK;
             uiLmStatus = UI_LM_STATUS_NONE;
             UI_LmDrawRow((uint8_t)uiLmRow);
             UI_LmDrawStatus();
@@ -9466,6 +9514,7 @@ static void UI_LmHandleEnter(void)
 
         case UI_LM_EDIT_CHANNEL:
         case UI_LM_EDIT_PROGRAM:
+        case UI_LM_EDIT_FEEDBACK:
         default:
             return;
     }
@@ -9484,6 +9533,13 @@ static void UI_LmHandleReturn(void)
     if (uiLmEdit == UI_LM_EDIT_PROGRAM)
     {
         uiLmConfig.programChange = uiLmProgramBackup;
+        UI_LmEndEdit();
+        return;
+    }
+
+    if (uiLmEdit == UI_LM_EDIT_FEEDBACK)
+    {
+        uiLmConfig.feedbackToggle = uiLmFeedbackBackup;
         UI_LmEndEdit();
         return;
     }

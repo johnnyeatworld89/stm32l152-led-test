@@ -196,6 +196,7 @@ static void Config_Normalize(LoopMidiConfig *config)
     }
 
     config->programChange = (config->programChange != 0U) ? 1U : 0U;
+    config->feedbackToggle = (config->feedbackToggle != 0U) ? 1U : 0U;
 
     if (config->groupCount > LOOP_MIDI_MAX_GROUPS)
     {
@@ -248,6 +249,7 @@ static uint8_t Config_IsDefault(const LoopMidiConfig *config)
 {
     return (config->channel == 0U &&
             config->programChange == 0U &&
+            config->feedbackToggle == 0U &&
             config->groupCount == 0U) ? 1U : 0U;
 }
 
@@ -276,7 +278,8 @@ static uint16_t Config_StoredSize(const LoopMidiConfig *config)
 
 /*
  * Block format, one entry per loop:
- *   loop id, channel (bit 7 = Program Change on), group count,
+ *   loop id, channel (bit 7 = Program Change on, bit 6 = Feedback
+ *   Toggle), group count,
  *   per group: message count, then controller and value per message
  */
 static uint16_t Store_Serialize(void)
@@ -296,7 +299,8 @@ static uint16_t Store_Serialize(void)
 
         storeBuffer[position++] = config->loopId;
         storeBuffer[position++] = (uint8_t)(config->channel |
-            ((config->programChange != 0U) ? 0x80U : 0x00U));
+            ((config->programChange != 0U) ? 0x80U : 0x00U) |
+            ((config->feedbackToggle != 0U) ? 0x40U : 0x00U));
         storeBuffer[position++] = config->groupCount;
 
         for (uint8_t g = 0U; g < config->groupCount; g++)
@@ -339,7 +343,8 @@ static uint8_t Store_Parse(
         config->groupCount = data[position++];
 
         config->programChange = (uint8_t)(config->channel >> 7);
-        config->channel = (uint8_t)(config->channel & 0x7FU);
+        config->feedbackToggle = (uint8_t)((config->channel >> 6) & 1U);
+        config->channel = (uint8_t)(config->channel & 0x3FU);
 
         if (config->loopId == 0U ||
             config->channel > 15U ||
@@ -671,9 +676,11 @@ int8_t LoopMidi_Receive(
             const LoopMidiMessage *on = &group->messages[2U * k];
             const LoopMidiMessage *off = &group->messages[(2U * k) + 1U];
 
-            if (LoopMidi_SwitchIsToggle(group, k))
+            if (LoopMidi_SwitchIsToggle(group, k) ||
+                config->feedbackToggle)
             {
-                if (!Message_Equals(on, controller, value))
+                if (!Message_Equals(on, controller, value) &&
+                    !Message_Equals(off, controller, value))
                 {
                     continue;
                 }
