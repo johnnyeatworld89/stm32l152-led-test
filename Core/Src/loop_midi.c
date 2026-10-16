@@ -339,7 +339,12 @@ static uint8_t Store_Parse(
         config->groupCount = data[position++];
 
         config->programChange = (uint8_t)(config->channel >> 7);
-        config->channel = (uint8_t)(config->channel & 0x7FU);
+
+        /*
+         * Bit 6 was used for a test option (Feedback Toggle) and is
+         * ignored, so such a configuration is still read.
+         */
+        config->channel = (uint8_t)(config->channel & 0x3FU);
 
         if (config->loopId == 0U ||
             config->channel > 15U ||
