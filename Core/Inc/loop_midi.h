@@ -34,13 +34,6 @@
  *   loop off:  every group that is on gets the Off (or Toggle) of its
  *              switch.
  *
- * Feedback Toggle (optional, per loop):
- *   Some devices (e.g. Boss DD-500) send On and Off of their footswitch
- *   alternately, no matter whether the effect was switched by MIDI in
- *   between. After the router switched the device, the values are
- *   swapped. With feedbackToggle on, every received On or Off of a
- *   switch toggles it (like a Toggle switch). Sending stays On/Off.
- *
  * Program Change (optional, per loop):
  *   With programChange on, a Program Change received on the channel of
  *   the loop is taken as the current program of the effect device. It
@@ -88,7 +81,6 @@ typedef struct
     uint8_t loopId;         /* item id of the loop, 0 = unused */
     uint8_t channel;        /* 0 to 15 (= MIDI channel 1 to 16) */
     uint8_t programChange;  /* 1 = Program Change on */
-    uint8_t feedbackToggle; /* 1 = received On/Off both toggle */
     uint8_t groupCount;
     LoopMidiGroup groups[LOOP_MIDI_MAX_GROUPS];
 

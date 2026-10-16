@@ -30,8 +30,7 @@ Sprache mit dem Nutzer: Deutsch.
 - Laden sendet: Bank-PC + Preset-CC, Loop-Programme, zusätzliche Meldungen (über Echo-Filter, `LoopMidi_SendControlChange` / `LoopMidi_SendChannelProgram`), dann On/Bypass.
 
 ## Loop-MIDI (Effektgeräte)
-- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "Program Change: Off/On", "Feedback: State/Toggle", "On/Bypass n", "add On/Bypass".
-- Feedback Toggle (je Loop, Bit 6 des Kanal-Bytes im Config-Block): jede empfangene On- oder Off-Meldung eines Schalters schaltet ihn um (wie Toggle), Senden bleibt On/Off. Gedacht für Geräte, deren Meldungen nach Schalten per MIDI nicht zum Zustand passen. Hilft beim Boss DD-500 nicht: Es sendet (CC27 127/0) beim ersten Tritt nach einer per MIDI empfangenen Schaltmeldung gar nichts (vom Nutzer bestätigt), danach wieder den echten Zustand. Router-seitig nicht erkennbar; Lösung nur über Einstellungen am DD-500 (offen).
+- Loop-Menü (ROOT bei Loop-Item): Zeile "Midi" -> Seite "Midi Channel: n", "Program Change: Off/On", "On/Bypass n", "add On/Bypass".
 - Program Change (je Loop, Bit 7 des Kanal-Bytes im Config-Block): PCs auf dem Loop-Kanal = aktuelles Programm des Geräts (Vorrang vor Bank-PC, Echo-Filter wie bei CCs). Presets speichern je Loop `0x80 | Programm` (0 = keins, alte Presets ohne Marker = keins); beim Laden zuerst PCs, dann On/Bypass. Unterschiedliches Programm verhindert den Rückkopplungsschutz-Treffer (`UI_PresetMatchesCurrent`).
 - Je Loop max. 8 Gruppen à max. 8 Schalter; Schalter = 2 CC-Meldungen (On/Off, gleich = Toggle). In einer Gruppe max. ein Schalter an, Loop aktiv solange eine Gruppe an.
 - Empfang: On -> Gruppe an; Off nur wirksam, wenn dieser Schalter an war; gleicher Toggle zweimal -> Gruppe aus. Vom Gerät gemeldet = `ACTIVE_CONFIRMED`.
@@ -56,6 +55,7 @@ Sprache mit dem Nutzer: Deutsch.
 - Schaltplan im Preset (Platz reserviert), ADG2188-Treiber / `routing.c`.
 - Loop manuell ein/aus schalten: Loop 1 per Fußschalter GPB5 (`UI_LoopToggle`, sendet On/Bypass wie beim Preset-Laden); weitere Loops / Bedienung im Menü offen.
 - Loop-MIDI und Preset-Midi am Board testen (bisher nur Host-Tests).
+- Boss DD-500 (CC27 127/0): sendet beim ersten Tritt nach einer per MIDI empfangenen Schaltmeldung gar nichts (vom Nutzer bestätigt), danach wieder den echten Zustand. Router-seitig nicht erkennbar, Loop-Status läuft bis zum nächsten Tritt auseinander. Lösung über Einstellungen am DD-500 offen. Eine Option "Feedback: Toggle" wurde probiert und wieder entfernt (hilft hier nicht).
 - Copy-Funktion in Manage Presets.
 - MIDI-Empfang per DMA statt Byte-Interrupt.
 - Externer Speicher für 64×24 Presets (EEPROM reicht nur für 30).
