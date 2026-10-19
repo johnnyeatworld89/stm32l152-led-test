@@ -1469,11 +1469,15 @@ static void MX_SPI1_Init(void)
 
     /*
      * System clock = 32 MHz
-     * Prescaler     = 16
-     * SPI clock     = approximately 2 MHz
+     * Prescaler     = 4
+     * SPI clock     = 8 MHz
+     *
+     * Limits: MCP23S17 10 MHz, ST7735 approx. 15 MHz (write).
+     * With long wires or display errors go back to
+     * SPI_BAUDRATEPRESCALER_8 (4 MHz) or _16 (2 MHz).
      */
     hspi1.Init.BaudRatePrescaler =
-        SPI_BAUDRATEPRESCALER_16;
+        SPI_BAUDRATEPRESCALER_4;
 
 
     hspi1.Init.FirstBit =

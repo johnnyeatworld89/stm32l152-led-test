@@ -992,15 +992,34 @@ static void UI_DrawCircle(int16_t cx, int16_t cy, int16_t radius,
 static void UI_FillCircle(int16_t cx, int16_t cy, int16_t radius,
                           uint16_t color)
 {
+    /*
+     * Je Pixelzeile ein Rechteck statt einzelner Pixel.
+     */
     for (int16_t y = -radius; y <= radius; y++)
     {
-        for (int16_t x = -radius; x <= radius; x++)
+        int16_t half = radius;
+
+        while ((half * half) + (y * y) > (radius * radius))
         {
-            if ((x * x) + (y * y) <= (radius * radius))
-            {
-                ST7735_DrawPixel(cx + x, cy + y, color);
-            }
+            half--;
         }
+
+        int16_t left = cx - half;
+        int16_t right = cx + half;
+        int16_t row = cy + y;
+
+        if (row < 0 || right < 0)
+        {
+            continue;
+        }
+
+        if (left < 0)
+        {
+            left = 0;
+        }
+
+        ST7735_FillRect((uint16_t)left, (uint16_t)row,
+                        (uint16_t)(right - left + 1), 1U, color);
     }
 }
 

@@ -173,6 +173,50 @@ static uint8_t Font5x7_ColumnHasRun(
 }
 
 
+/*
+ * Groesste Skalierung, die als ein Block gesendet wird
+ * (Puffer: 5 x 7 x scale^2 Pixel a 2 Byte auf dem Stack).
+ */
+#define FONT5X7_BLIT_MAX_SCALE  2U
+
+
+/*
+ * Rendert das Zeichen in einen Puffer und sendet es als Bitmap.
+ * Rueckgabe 0, wenn das Zeichen nicht ganz auf den Bildschirm passt.
+ */
+static uint8_t Font5x7_DrawCharBlock(
+    uint16_t x,
+    uint16_t y,
+    const uint8_t *bitmap,
+    uint16_t fg,
+    uint16_t bg,
+    uint8_t scale)
+{
+    uint8_t buffer[5U * 7U * FONT5X7_BLIT_MAX_SCALE *
+                   FONT5X7_BLIT_MAX_SCALE * 2U];
+
+    uint16_t width  = 5U * scale;
+    uint16_t height = 7U * scale;
+    uint16_t index = 0U;
+
+    for (uint16_t py = 0U; py < height; py++)
+    {
+        uint8_t rowMask = (uint8_t)(1U << (py / scale));
+
+        for (uint16_t px = 0U; px < width; px++)
+        {
+            uint16_t color =
+                (bitmap[px / scale] & rowMask) ? fg : bg;
+
+            buffer[index++] = (uint8_t)(color >> 8);
+            buffer[index++] = (uint8_t)(color & 0xFF);
+        }
+    }
+
+    return ST7735_DrawBitmap(x, y, width, height, buffer);
+}
+
+
 void Font5x7_DrawChar(
     uint16_t x,
     uint16_t y,
@@ -225,6 +269,20 @@ void Font5x7_DrawChar(
             7 * scale,
             fg);
 
+        return;
+    }
+
+
+    /*
+     * Zeichen als ein Block: Pixel in einen Puffer rendern und mit
+     * einem einzigen Adressfenster senden. Das ist deutlich schneller
+     * als viele kleine Rechtecke (jedes kostet ein eigenes
+     * Adressfenster). Grosse Skalierungen und Zeichen am Rand gehen
+     * den langsameren Weg unten.
+     */
+    if (scale <= FONT5X7_BLIT_MAX_SCALE &&
+        Font5x7_DrawCharBlock(x, y, bitmap, fg, bg, scale))
+    {
         return;
     }
 
