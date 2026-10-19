@@ -18,6 +18,12 @@
 #define ST7735_RST_PIN     GPIO_PIN_1
 
 
+/*
+ * Pixel je SPI-Aufruf in ST7735_FillRect (2 Byte je Pixel auf dem Stack).
+ */
+#define ST7735_FILL_CHUNK_PIXELS   32U
+
+
 /* -------------------------------------------------------------------------- */
 /* Internal state                                                             */
 /* -------------------------------------------------------------------------- */
@@ -418,6 +424,44 @@ void ST7735_DrawLine(
     uint16_t color
 )
 {
+    /*
+     * Waagerechte und senkrechte Linien als ein Rechteck: ein
+     * Adressfenster statt eines je Pixel.
+     */
+    if (x0 == x1 || y0 == y1)
+    {
+        int16_t left   = (x0 < x1) ? x0 : x1;
+        int16_t right  = (x0 < x1) ? x1 : x0;
+        int16_t top    = (y0 < y1) ? y0 : y1;
+        int16_t bottom = (y0 < y1) ? y1 : y0;
+
+        if (right < 0 || bottom < 0)
+        {
+            return;
+        }
+
+        if (left < 0)
+        {
+            left = 0;
+        }
+
+        if (top < 0)
+        {
+            top = 0;
+        }
+
+        ST7735_FillRect(
+            (uint16_t)left,
+            (uint16_t)top,
+            (uint16_t)(right - left + 1),
+            (uint16_t)(bottom - top + 1),
+            color
+        );
+
+        return;
+    }
+
+
     int16_t dx = x1 - x0;
     int16_t sx = (dx >= 0) ? 1 : -1;
 
@@ -582,36 +626,97 @@ void ST7735_FillRect(
     );
 
 
-    uint8_t pixel[2];
+    /*
+     * Die Farbe wird in einen Puffer kopiert und blockweise gesendet.
+     * Ein HAL_SPI_Transmit-Aufruf je Pixel kostet mehr Zeit als die
+     * Uebertragung selbst.
+     */
+    uint8_t buffer[ST7735_FILL_CHUNK_PIXELS * 2U];
 
-    pixel[0] = color >> 8;
-    pixel[1] = color & 0xFF;
+    uint32_t pixels =
+        (uint32_t)width *
+        (uint32_t)height;
+
+    uint32_t bufferPixels =
+        (pixels < ST7735_FILL_CHUNK_PIXELS) ?
+        pixels :
+        ST7735_FILL_CHUNK_PIXELS;
+
+    for (uint32_t i = 0; i < bufferPixels; i++)
+    {
+        buffer[2U * i]      = color >> 8;
+        buffer[2U * i + 1U] = color & 0xFF;
+    }
 
 
     ST7735_Select();
 
     ST7735_DC_Data();
 
-
-    uint32_t pixels =
-        (uint32_t)width *
-        (uint32_t)height;
-
-
-    for (uint32_t i = 0;
-         i < pixels;
-         i++)
+    while (pixels > 0U)
     {
+        uint32_t count =
+            (pixels < bufferPixels) ?
+            pixels :
+            bufferPixels;
+
         HAL_SPI_Transmit(
             &hspi1,
-            pixel,
-            2,
+            buffer,
+            (uint16_t)(count * 2U),
             HAL_MAX_DELAY
         );
+
+        pixels -= count;
     }
 
 
     ST7735_Unselect();
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Bitmap                                                                     */
+/* -------------------------------------------------------------------------- */
+
+uint8_t ST7735_DrawBitmap(
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height,
+    const uint8_t *data
+)
+{
+    if (width == 0 || height == 0 ||
+        x + width > st7735_width ||
+        y + height > st7735_height)
+    {
+        return 0U;
+    }
+
+
+    ST7735_SetAddressWindow(
+        x,
+        y,
+        x + width - 1,
+        y + height - 1
+    );
+
+
+    ST7735_Select();
+
+    ST7735_DC_Data();
+
+    HAL_SPI_Transmit(
+        &hspi1,
+        (uint8_t *)data,
+        (uint16_t)((uint32_t)width * height * 2U),
+        HAL_MAX_DELAY
+    );
+
+    ST7735_Unselect();
+
+    return 1U;
 }
 
 

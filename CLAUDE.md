@@ -6,7 +6,7 @@ Sprache mit dem Nutzer: Deutsch.
 
 ## Hardware / Build
 - STM32L152RE Nucleo, HAL, CMake. Neue .c-Dateien in CMakeLists.txt eintragen.
-- SPI1: Display ST7735 + MCP23S17 (Tasten Shift GPB7/Return GPB6/Menu GPA0, Loop-1-Fußschalter GPB5). Dazu Drehencoder mit Taster.
+- SPI1 (8 MHz, Prescaler 4): Display ST7735 + MCP23S17 (Tasten Shift GPB7/Return GPB6/Menu GPA0, Loop-1-Fußschalter GPB5). Dazu Drehencoder mit Taster.
 - Status-LED Loop 1: WS2812B an PB15 (SPI2_MOSI, Morpho CN10-26), SPI2 allein mit 4 MHz, 4 SPI-Bits je LED-Bit, Treiber `Libraries/WS2812B`. Aus / gelb = aktiv unbestätigt / grün = bestätigt, alle 100 ms neu gesendet. Pegelwandler 3,3 → 5 V empfohlen.
 - Eingabe: TIM6-Interrupt tastet Eingänge ab, Ring-Puffer (SPSC) -> Main-Loop.
 - MIDI: USART1 PA9 (TX) / PA10 (RX), 31250 Bd (`MIDI_UART_PORT` in midi.h; 2 = PA2/PA3 kollidiert mit ST-LINK, SB13/SB14).
@@ -48,6 +48,7 @@ Sprache mit dem Nutzer: Deutsch.
 ## Konventionen
 - Zeilenenden der vorhandenen Dateien beibehalten (ui.c/ui.h/preset_store.*/midi_presets.* sind CRLF).
 - Display: nur geänderte Zeichen neu zeichnen (Shadow-Cache); SPI-Zugriffe sparsam.
+  Treiber: `ST7735_FillRect` sendet blockweise, waagerechte/senkrechte Linien laufen über FillRect, Zeichen (Skalierung ≤ 2) gehen als ein Block über `ST7735_DrawBitmap`. Keine Einzelpixel-Schleifen mit `ST7735_DrawPixel` für Flächen.
 - Keine Blockierung in Interrupts; EEPROM-Schreiben blockiert kurz (bewusst).
 - Host-Tests (gcc, Stub-HAL) sind möglich; Stand: Alles bisher nur teilweise auf dem Board geprüft (MIDI-Empfang/Senden bestätigt). MIDI-Speichern per CC0 ist nur am PC getestet.
 

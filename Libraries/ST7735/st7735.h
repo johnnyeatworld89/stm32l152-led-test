@@ -104,6 +104,20 @@ void ST7735_FillRect(
 );
 
 
+/*
+ * Schreibt ein Rechteck aus RGB565-Pixeln (je Pixel 2 Byte, hoeherwertiges
+ * Byte zuerst, zeilenweise) mit einem einzigen Adressfenster.
+ * Ragt das Rechteck ueber den Rand, wird nichts gezeichnet (Rueckgabe 0).
+ */
+uint8_t ST7735_DrawBitmap(
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height,
+    const uint8_t *data
+);
+
+
 /* -------------------------------------------------------------------------- */
 /* Arrows                                                                     */
 /* -------------------------------------------------------------------------- */
