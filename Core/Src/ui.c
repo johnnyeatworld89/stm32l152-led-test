@@ -4665,10 +4665,85 @@ static uint8_t UI_ListBankRow(void)
 }
 
 
+/*
+ * Auswahl-Seite: Sie zeigt nur belegte Presets. index = Position in der
+ * Liste (0 = erstes belegtes Preset der Bank). Rueckgabe: Preset-Nummer
+ * (0 bis 23) bzw. -1, wenn es so viele belegte Presets nicht gibt.
+ */
+static int16_t UI_SelectSlotOfIndex(
+    uint8_t bank,
+    uint8_t index)
+{
+    char name[PRESET_NAME_LENGTH];
+
+    for (uint8_t slot = 0U; slot < PRESET_SLOTS_PER_BANK; slot++)
+    {
+        if (!PresetStore_GetSlotName(bank, slot, name))
+        {
+            continue;
+        }
+
+        if (index == 0U)
+        {
+            return (int16_t)slot;
+        }
+
+        index--;
+    }
+
+    return -1;
+}
+
+
+static uint8_t UI_SelectUsedCount(uint8_t bank)
+{
+    char name[PRESET_NAME_LENGTH];
+    uint8_t count = 0U;
+
+    for (uint8_t slot = 0U; slot < PRESET_SLOTS_PER_BANK; slot++)
+    {
+        if (PresetStore_GetSlotName(bank, slot, name))
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+
+/* Anzahl der Preset-Zeilen (Auswahl-Seite: nur belegte Presets). */
+static uint8_t UI_ListPresetCount(void)
+{
+    return UI_ListIsSelect() ?
+           UI_SelectUsedCount(uiPresetBank) :
+           (uint8_t)PRESET_SLOTS_PER_BANK;
+}
+
+
+/* Preset-Nummer (0 bis 23) einer Preset-Zeile, -1 = keine. */
+static int16_t UI_ListSlotOfRow(uint8_t row)
+{
+    int16_t index = (int16_t)row - (int16_t)UI_ListBankRow() - 1;
+
+    if (index < 0)
+    {
+        return -1;
+    }
+
+    if (UI_ListIsSelect())
+    {
+        return UI_SelectSlotOfIndex(uiPresetBank, (uint8_t)index);
+    }
+
+    return (index < (int16_t)PRESET_SLOTS_PER_BANK) ? index : -1;
+}
+
+
 /* Zeilennummer der letzten Preset-Zeile. */
 static int16_t UI_ListLastRow(void)
 {
-    return (int16_t)(UI_ListBankRow() + PRESET_SLOTS_PER_BANK);
+    return (int16_t)(UI_ListBankRow() + UI_ListPresetCount());
 }
 
 
@@ -4737,7 +4812,15 @@ static void UI_SaveBuildRowText(
         return;
     }
 
-    uint8_t number = (uint8_t)(row - bankRow);
+    int16_t slotOfRow = UI_ListSlotOfRow(row);
+
+    if (slotOfRow < 0)
+    {
+        /* Auswahl-Seite: leere Zeile unter dem letzten Preset. */
+        return;
+    }
+
+    uint8_t number = (uint8_t)(slotOfRow + 1);
     char presetName[PRESET_NAME_LENGTH];
 
     uint8_t used = PresetStore_GetSlotName(
@@ -4975,14 +5058,23 @@ static void UI_SaveDrawScrollbar(void)
     uint16_t trackHeight =
         (uint16_t)(visible * UI_SAVE_ROW_HEIGHT);
 
+    /*
+     * Auswahl-Seite: nur belegte Presets, bei wenigen fuellt der
+     * Schieber die ganze Leiste.
+     */
+    uint16_t total = UI_ListPresetCount();
+
+    if (total < visible)
+    {
+        total = visible;
+    }
+
     uint16_t thumbHeight =
-        (uint16_t)((trackHeight * visible) /
-                   PRESET_SLOTS_PER_BANK);
+        (uint16_t)((trackHeight * visible) / total);
 
     uint16_t thumbY =
         (uint16_t)(UI_ListFirstY() +
-            (((uint32_t)trackHeight * uiPresetScrollTop) /
-             PRESET_SLOTS_PER_BANK));
+            (((uint32_t)trackHeight * uiPresetScrollTop) / total));
 
     ST7735_FillRect(
         UI_SAVE_SCROLLBAR_X,
@@ -8374,16 +8466,36 @@ static void UI_SaveHandleEncoder(int8_t direction)
      */
     if (uiPresetBankEditing)
     {
-        if (direction > 0)
+        /*
+         * Auswahl-Seite: leere Baenke werden uebersprungen (gibt es
+         * keine belegte, bleibt die Bank).
+         */
+        uint8_t bank = uiPresetBank;
+
+        for (uint8_t tries = 0U; tries < PRESET_BANK_COUNT; tries++)
         {
-            uiPresetBank = (uint8_t)
-                ((uiPresetBank + 1U) % PRESET_BANK_COUNT);
+            if (direction > 0)
+            {
+                bank = (uint8_t)((bank + 1U) % PRESET_BANK_COUNT);
+            }
+            else
+            {
+                bank = (uint8_t)
+                    ((bank + PRESET_BANK_COUNT - 1U) %
+                     PRESET_BANK_COUNT);
+            }
+
+            if (!UI_ListIsSelect() ||
+                UI_SelectUsedCount(bank) > 0U)
+            {
+                uiPresetBank = bank;
+                break;
+            }
         }
-        else
+
+        if (UI_ListIsSelect())
         {
-            uiPresetBank = (uint8_t)
-                ((uiPresetBank + PRESET_BANK_COUNT - 1U) %
-                 PRESET_BANK_COUNT);
+            uiPresetScrollTop = 0U;
         }
 
         uiSaveStatus = UI_SAVE_STATUS_NONE;
@@ -8496,27 +8608,23 @@ static void UI_SaveHandleEnter(void)
         return;
     }
 
-    uint8_t slot = (uint8_t)(uiMenuSelectedRow - bankRow - 1);
+    int16_t slotOfRow = UI_ListSlotOfRow((uint8_t)uiMenuSelectedRow);
+
+    if (slotOfRow < 0)
+    {
+        return;
+    }
+
+    uint8_t slot = (uint8_t)slotOfRow;
 
     if (UI_ListIsSelect())
     {
         /*
-         * Auswahl-Seite: Haken setzen bzw. entfernen (nur belegte
-         * Presets).
+         * Auswahl-Seite: Haken setzen bzw. entfernen.
          */
-        char name[PRESET_NAME_LENGTH];
-
-        if (PresetStore_GetSlotName(uiPresetBank, slot, name))
-        {
-            uiPresetSelection[uiPresetBank] ^= (1UL << slot);
-            uiSaveStatus = UI_SAVE_STATUS_NONE;
-            UI_SaveDrawRow((uint8_t)uiMenuSelectedRow);
-        }
-        else
-        {
-            uiSaveStatus = UI_SAVE_STATUS_EMPTY_SLOT;
-        }
-
+        uiPresetSelection[uiPresetBank] ^= (1UL << slot);
+        uiSaveStatus = UI_SAVE_STATUS_NONE;
+        UI_SaveDrawRow((uint8_t)uiMenuSelectedRow);
         UI_SaveDrawStatus();
         return;
     }
@@ -8649,6 +8757,22 @@ static void UI_PresetSelectOpen(uint8_t merge)
     uiPresetSelectMerge = merge;
     uiPresetSelectBankBackup = uiPresetBank;
     uiPresetBankEditing = 0U;
+
+    /*
+     * Leere Baenke werden nicht gezeigt: ab der aktuellen Bank die
+     * erste mit belegten Presets waehlen.
+     */
+    for (uint8_t tries = 0U; tries < PRESET_BANK_COUNT; tries++)
+    {
+        uint8_t bank = (uint8_t)
+            ((uiPresetSelectBankBackup + tries) % PRESET_BANK_COUNT);
+
+        if (UI_SelectUsedCount(bank) > 0U)
+        {
+            uiPresetBank = bank;
+            break;
+        }
+    }
     uiSaveStatus = UI_SAVE_STATUS_NONE;
     uiPresetScrollTop = 0U;
 
