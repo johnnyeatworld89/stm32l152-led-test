@@ -794,7 +794,8 @@ typedef enum
     UI_MENU_PAGE_PRESET_MIDI,
     UI_MENU_PAGE_CONVERT_CONFIRM,
     UI_MENU_PAGE_MERGE_CONFIRM,
-    UI_MENU_PAGE_MERGE_ERROR
+    UI_MENU_PAGE_MERGE_ERROR,
+    UI_MENU_PAGE_MERGE_REPORT
 
 } UI_MenuPage;
 
@@ -10349,7 +10350,29 @@ static uint8_t UI_ConvertSetPositions(
  * Programme und zusaetzliche MIDI-Meldungen bleiben. Presets, in denen
  * der Loop schon umgewandelt ist, bleiben unveraendert.
  */
-static uint8_t UI_MergeLoopItemsOk(const UI_ConvertIds *ids);
+typedef enum
+{
+    UI_MERGE_OK = 0,
+    UI_MERGE_NOTHING,       /* Loop nicht umgewandelt */
+    UI_MERGE_NO_LEFT_IN,    /* ganz links bliebe kein Input */
+    UI_MERGE_NO_RIGHT_OUT   /* ganz rechts bliebe kein Output */
+
+} UI_MergeResult;
+
+/* Ergebnis der letzten Pruefung fuer die Fehlermeldung. */
+static UI_MergeResult uiMergeError = UI_MERGE_OK;
+
+
+/*
+ * Presets, die "Merge presets too?" wegen der Randregel nicht
+ * zurueckbauen konnte (Anzeige auf der Seite MERGE_REPORT).
+ */
+static uint8_t uiMergeFailBank[PRESET_MAX_RECORDS];
+static uint8_t uiMergeFailSlot[PRESET_MAX_RECORDS];
+static uint8_t uiMergeFailCount = 0U;
+static uint8_t uiMergeReportScrollTop = 0U;
+
+static UI_MergeResult UI_MergeLoopItems(const UI_ConvertIds *ids);
 
 static void UI_ConvertPresets(
     const UI_ConvertIds *ids,
@@ -10367,6 +10390,8 @@ static void UI_ConvertPresets(
     }
 
     memcpy(savedConnections, uiConnections, sizeof(savedConnections));
+
+    uiMergeFailCount = 0U;
 
     for (uint8_t bank = 0U; bank < PRESET_BANK_COUNT; bank++)
     {
@@ -10392,10 +10417,29 @@ static void UI_ConvertPresets(
                 continue;
             }
 
-            if (!UI_ConvertSetPositions(layout, length) ||
-                !(merge ?
-                  UI_MergeLoopItemsOk(ids) :
-                  UI_ConvertLoopItems(ids)))
+            if (!UI_ConvertSetPositions(layout, length))
+            {
+                continue;
+            }
+
+            if (merge)
+            {
+                UI_MergeResult result = UI_MergeLoopItems(ids);
+
+                if (result != UI_MERGE_OK)
+                {
+                    if (result != UI_MERGE_NOTHING &&
+                        uiMergeFailCount < PRESET_MAX_RECORDS)
+                    {
+                        uiMergeFailBank[uiMergeFailCount] = bank;
+                        uiMergeFailSlot[uiMergeFailCount] = slot;
+                        uiMergeFailCount++;
+                    }
+
+                    continue;
+                }
+            }
+            else if (!UI_ConvertLoopItems(ids))
             {
                 continue;
             }
@@ -10485,19 +10529,6 @@ static void UI_ConvertSelectedLoop(uint8_t convertPresets)
 /* -------------------------------------------------------------------------- */
 /* In-/Out-Menue: Merge to Loop                                               */
 /* -------------------------------------------------------------------------- */
-
-typedef enum
-{
-    UI_MERGE_OK = 0,
-    UI_MERGE_NOTHING,       /* Loop nicht umgewandelt */
-    UI_MERGE_NO_LEFT_IN,    /* ganz links bliebe kein Input */
-    UI_MERGE_NO_RIGHT_OUT   /* ganz rechts bliebe kein Output */
-
-} UI_MergeResult;
-
-/* Ergebnis der letzten Pruefung fuer die Fehlermeldung. */
-static UI_MergeResult uiMergeError = UI_MERGE_OK;
-
 
 /*
  * Ids zum Return- bzw. Send-Item an itemIndex (siehe UI_CONVERT_ITEMS).
@@ -10722,17 +10753,153 @@ static UI_MergeResult UI_MergeLoopItems(const UI_ConvertIds *ids)
 }
 
 
-static uint8_t UI_MergeLoopItemsOk(const UI_ConvertIds *ids)
+/* -------------------------------------------------------------------------- */
+/* Seite MERGE_REPORT: nicht zurueckgebaute Presets                           */
+/* -------------------------------------------------------------------------- */
+
+static void UI_MergeReportDrawRow(uint8_t position)
 {
-    return (UI_MergeLoopItems(ids) == UI_MERGE_OK) ? 1U : 0U;
+    uint8_t entry = (uint8_t)(uiMergeReportScrollTop + position);
+    uint16_t y = (uint16_t)(UI_SAVE_LIST_Y +
+        ((uint16_t)position * UI_SAVE_ROW_HEIGHT));
+    char text[UI_SAVE_TEXT_CAPACITY];
+
+    text[0] = '\0';
+
+    /*
+     * "B<Bank> <Preset>: <Name>", Bank wie in der Preset-Liste ab 0,
+     * Preset ab 1.
+     */
+    if (entry < uiMergeFailCount)
+    {
+        char name[PRESET_NAME_LENGTH];
+        uint8_t textPosition = 0U;
+
+        (void)PresetStore_GetSlotName(
+            uiMergeFailBank[entry], uiMergeFailSlot[entry], name);
+
+        textPosition = UI_SaveAppendText(
+            text, textPosition, UI_SAVE_TEXT_CAPACITY, "B");
+        textPosition = UI_SaveAppendUInt(
+            text, textPosition, UI_SAVE_TEXT_CAPACITY,
+            uiMergeFailBank[entry]);
+        textPosition = UI_SaveAppendText(
+            text, textPosition, UI_SAVE_TEXT_CAPACITY, " ");
+        textPosition = UI_SaveAppendUInt2(
+            text, textPosition, UI_SAVE_TEXT_CAPACITY,
+            (uint8_t)(uiMergeFailSlot[entry] + 1U));
+        textPosition = UI_SaveAppendText(
+            text, textPosition, UI_SAVE_TEXT_CAPACITY, ": ");
+        UI_SaveAppendText(
+            text, textPosition, UI_SAVE_TEXT_CAPACITY, name);
+    }
+
+    UI_SaveDrawTextLine(
+        (uint8_t)(position + 1U),
+        y,
+        UI_SAVE_ROW_WIDTH,
+        UI_SAVE_ROW_HEIGHT,
+        y + UI_SAVE_TEXT_Y_OFFSET,
+        text,
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND
+    );
+}
+
+
+static void UI_MergeReportDrawList(void)
+{
+    for (uint8_t position = 0U;
+         position < UI_SAVE_VISIBLE_PRESETS;
+         position++)
+    {
+        UI_MergeReportDrawRow(position);
+    }
+
+    UI_ListDrawScrollbar(uiMergeFailCount, uiMergeReportScrollTop);
+}
+
+
+static void UI_MergeReportDrawPage(void)
+{
+    ST7735_FillRect(
+        0U,
+        0U,
+        UI_DISPLAY_WIDTH,
+        UI_DISPLAY_HEIGHT,
+        UI_COLOR_BACKGROUND
+    );
+
+    UI_SaveShadowInvalidate();
+
+    Font5x7_DrawString(
+        UI_SAVE_TEXT_X_OFFSET,
+        UI_SAVE_HEADER_Y,
+        "Not merged (In/Out):",
+        UI_COLOR_LOOP_UNCONFIRMED,
+        UI_COLOR_BACKGROUND,
+        1U
+    );
+
+    UI_MergeReportDrawList();
+
+    ST7735_DrawLine(
+        0U,
+        UI_SAVE_SEPARATOR_Y,
+        UI_DISPLAY_WIDTH - 1U,
+        UI_SAVE_SEPARATOR_Y,
+        UI_COLOR_BORDER_NORMAL
+    );
+
+    Font5x7_DrawString(
+        UI_SAVE_TEXT_X_OFFSET,
+        UI_SAVE_STATUS_Y,
+        "Enter: OK",
+        UI_COLOR_TEXT_LIGHT,
+        UI_COLOR_BACKGROUND,
+        1U
+    );
+}
+
+
+static void UI_MergeReportHandleEncoder(int8_t direction)
+{
+    int16_t top = (int16_t)uiMergeReportScrollTop + direction;
+    int16_t maximumTop =
+        (int16_t)uiMergeFailCount - (int16_t)UI_SAVE_VISIBLE_PRESETS;
+
+    if (maximumTop < 0)
+    {
+        maximumTop = 0;
+    }
+
+    if (top < 0)
+    {
+        top = 0;
+    }
+
+    if (top > maximumTop)
+    {
+        top = maximumTop;
+    }
+
+    if (top == (int16_t)uiMergeReportScrollTop)
+    {
+        return;
+    }
+
+    uiMergeReportScrollTop = (uint8_t)top;
+
+    UI_MergeReportDrawList();
 }
 
 
 /*
  * "Merge to Loop" fuer das Return-/Send-Item im Menue. mergePresets = 1:
- * alle gespeicherten Presets werden ebenfalls zurueckgebaut (Presets, in
- * denen das nach der Randregel nicht geht, bleiben unveraendert), sonst
- * nur das aktuelle Layout. Der Loop bleibt ausgeschaltet.
+ * alle gespeicherten Presets werden ebenfalls zurueckgebaut. Presets, in
+ * denen das nach der Randregel nicht geht, bleiben unveraendert und
+ * werden danach auf der Seite MERGE_REPORT aufgelistet. Sonst nur das
+ * aktuelle Layout. Der Loop bleibt ausgeschaltet.
  */
 static void UI_MergeSelectedItem(uint8_t mergePresets)
 {
@@ -10748,12 +10915,25 @@ static void UI_MergeSelectedItem(uint8_t mergePresets)
     {
         grabStartStateValid = 0U;
 
+        UI_MenuSetConfirmedItem(UI_FindItemIndexById(ids.loopId));
+
         if (mergePresets)
         {
             UI_ConvertPresets(&ids, 1U);
-        }
 
-        UI_MenuSetConfirmedItem(UI_FindItemIndexById(ids.loopId));
+            /*
+             * Presets, die wegen der Randregel nicht zurueckgebaut
+             * werden konnten, auflisten. Enter, Return oder die
+             * Menue-Taste schliessen das Menue danach.
+             */
+            if (uiMergeFailCount > 0U)
+            {
+                uiMergeReportScrollTop = 0U;
+                uiMenuPage = UI_MENU_PAGE_MERGE_REPORT;
+                UI_DrawMenu();
+                return;
+            }
+        }
     }
 
     uiMenuPage = UI_MENU_PAGE_ROOT;
@@ -10800,6 +10980,12 @@ static void UI_DrawMenu(void)
     if (uiMenuPage == UI_MENU_PAGE_PRESET_MIDI)
     {
         UI_PmDrawPage();
+        return;
+    }
+
+    if (uiMenuPage == UI_MENU_PAGE_MERGE_REPORT)
+    {
+        UI_MergeReportDrawPage();
         return;
     }
 
@@ -11092,6 +11278,12 @@ static void UI_MenuHandleEncoderStep(
         return;
     }
 
+    if (uiMenuPage == UI_MENU_PAGE_MERGE_REPORT)
+    {
+        UI_MergeReportHandleEncoder(direction);
+        return;
+    }
+
     if (direction == 0 ||
         uiMenuPage ==
             UI_MENU_PAGE_MERGE_ERROR)
@@ -11177,6 +11369,12 @@ static void UI_MenuHandleEnter(void)
     if (uiMenuPage == UI_MENU_PAGE_PRESET_MIDI)
     {
         UI_PmHandleEnter();
+        return;
+    }
+
+    if (uiMenuPage == UI_MENU_PAGE_MERGE_REPORT)
+    {
+        UI_CloseMenu(0U);
         return;
     }
 
@@ -11405,6 +11603,12 @@ static void UI_MenuHandleReturn(void)
     if (uiMenuPage == UI_MENU_PAGE_PRESET_MIDI)
     {
         UI_PmHandleReturn();
+        return;
+    }
+
+    if (uiMenuPage == UI_MENU_PAGE_MERGE_REPORT)
+    {
+        UI_CloseMenu(0U);
         return;
     }
 
