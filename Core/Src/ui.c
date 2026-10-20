@@ -11738,60 +11738,6 @@ static void UI_MoveGrabbedHorizontal(
             grabbedItem->lane =
                 targetOldLane;
 
-
-            /*
-             * Ein Input oder Output darf nur tauschen,
-             * wenn danach ganz links weiterhin nur
-             * Inputs und ganz rechts nur Outputs liegen.
-             *
-             * Sonst bekommt er eine eigene neue Spalte
-             * zwischen seiner bisherigen Spalte und der
-             * Zielspalte.
-             */
-            if (grabbedIsIo &&
-                !UI_ValidateEdgeRules())
-            {
-                uiItems[
-                    targetPermanentIndex
-                ].order =
-                    targetOldOrder;
-
-                uiItems[
-                    targetPermanentIndex
-                ].lane =
-                    targetOldLane;
-
-                grabbedItem->order =
-                    grabbedOldOrder;
-
-                grabbedItem->lane =
-                    grabbedOldLane;
-
-
-                if (UI_GetMaximumPermanentOrder() + 1 >=
-                    UI_MAX_ORDER_COUNT)
-                {
-                    return;
-                }
-
-                if (direction > 0)
-                {
-                    UI_InsertOrderBefore(
-                        targetOrder,
-                        grabbedIndex
-                    );
-
-                    grabbedItem->order =
-                        targetOrder;
-                }
-                else
-                {
-                    UI_InsertOrderBefore(
-                        grabbedOldOrder,
-                        grabbedIndex
-                    );
-                }
-            }
         }
     }
     else
