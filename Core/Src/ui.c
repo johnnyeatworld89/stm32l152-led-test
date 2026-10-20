@@ -5795,8 +5795,32 @@ static uint8_t UI_PresetMatchesCurrent(
         return 0U;
     }
 
+    /*
+     * Loops, die nicht im Layout sind (z.B. umgewandelt per "Convert to
+     * In + Out"), zaehlen nicht: ihr gespeicherter Status bleibt fuer ein
+     * spaeteres Zusammenfuehren erhalten.
+     */
+    uint32_t inactiveLoops = 0UL;
+    uint8_t loopNumber = 0U;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type != UI_ITEM_LOOP)
+        {
+            continue;
+        }
+
+        if (loopNumber < PRESET_LOOP_STATUS_MAX_LOOPS &&
+            uiItems[i].order < 0)
+        {
+            inactiveLoops |= (1UL << loopNumber);
+        }
+
+        loopNumber++;
+    }
+
     if ((storedLoopStatus & PRESET_LOOP_STATUS_VALID) != 0UL &&
-        storedLoopStatus != UI_LoopStatusBits())
+        (storedLoopStatus & ~inactiveLoops) != UI_LoopStatusBits())
     {
         return 0U;
     }
@@ -10346,8 +10370,8 @@ static uint8_t UI_ConvertSetPositions(
  * in UI_PresetMatchesCurrent). Danach wird das aktuelle Layout
  * wiederhergestellt.
  *
- * Der Loop faellt aus Loop-Status und On/Bypass-Zustand heraus, Name,
- * Programme und zusaetzliche MIDI-Meldungen bleiben. Presets, in denen
+ * Name, Loop-Status, Programme, On/Bypass-Zustaende und zusaetzliche
+ * MIDI-Meldungen bleiben. Presets, in denen
  * der Loop schon umgewandelt ist, bleiben unveraendert.
  */
 typedef enum
@@ -10451,10 +10475,14 @@ static void UI_ConvertPresets(
                 continue;
             }
 
-            loopStatus &= ~(1UL << ids->loopNumber);
-            states.mask &= ~(1UL << ids->loopNumber);
-            states.state[ids->loopNumber] = 0UL;
-
+            /*
+             * Loop-Status und On/Bypass-Zustand des Loops bleiben
+             * gespeichert: Waehrend der Loop umgewandelt ist, werden sie
+             * beim Laden nicht verwendet (Loop nicht im Layout), nach
+             * "Merge presets too?" schaltet das Preset ihn wieder wie
+             * vorher. Ein Preset, das mit umgewandeltem Loop gespeichert
+             * wurde, hat ihn als aus gespeichert.
+             */
             (void)PresetStore_SavePreset(
                 bank,
                 slot,
