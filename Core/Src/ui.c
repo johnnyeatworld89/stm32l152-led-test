@@ -74,7 +74,7 @@
 #define UI_MENU_X                    8U
 #define UI_MENU_Y                    8U
 #define UI_MENU_WIDTH              144U
-#define UI_MENU_HEIGHT              80U
+#define UI_MENU_HEIGHT             104U
 #define UI_MENU_ROW_HEIGHT          24U
 #define UI_MENU_TEXT_X_OFFSET        8U
 #define UI_MENU_TEXT_Y_OFFSET        8U
@@ -82,13 +82,63 @@
 #define UI_MENU_ITEM_ROW             1U
 #define UI_MENU_DELETE_NODE_ROW      2U
 #define UI_MENU_LOOP_MIDI_ROW        2U
+#define UI_MENU_LOOP_CONVERT_ROW     3U
 
 /* Anzahl der Zeilen, die das Menue-Overlay gleichzeitig anzeigen kann. */
-#define UI_MENU_VISIBLE_ROWS         3U
+#define UI_MENU_VISIBLE_ROWS         4U
 
 #define UI_MENU_CONFIRM_TITLE_ROW    0U
 #define UI_MENU_CONFIRM_CANCEL_ROW   1U
 #define UI_MENU_CONFIRM_DELETE_ROW   2U
+
+/* Abfrage "Convert presets too?" (Loop-Menue, Convert to In + Out). */
+#define UI_MENU_CONVERT_YES_ROW      1U
+#define UI_MENU_CONVERT_NO_ROW       2U
+
+/*
+ * Ersatz-Items fuer "Convert to In + Out" (Loop-Menue): je Loop ein
+ * manueller Knoten "Lnn" an der Stelle des Loops, ein Input "Return Lnn"
+ * (Return-Buchse) und ein Output "Send Lnn" (Send-Buchse).
+ * id = Basis + Loopnummer (1 = L01, Zaehlung wie in UI_LoopStatusBits).
+ * Sie sind inaktiv, solange der Loop nicht umgewandelt ist. Ob ein Loop
+ * umgewandelt ist, steht damit allein im Layout (auch in den Presets).
+ */
+#define UI_CONVERT_MAX_LOOPS          31U
+#define UI_CONVERT_NODE_ID_BASE      104U
+#define UI_CONVERT_RETURN_ID_BASE    136U
+#define UI_CONVERT_SEND_ID_BASE      168U
+
+#define UI_CONVERT_ITEMS(number, text)                  \
+    {                                                   \
+        .id = UI_CONVERT_NODE_ID_BASE + (number),       \
+        .type = UI_ITEM_MANUAL_NODE,                    \
+        .order = -100,                                  \
+        .lane = 0,                                      \
+        .loopStatus = UI_LOOP_STATUS_OFF,               \
+        .focus = UI_FOCUS_NONE,                         \
+        .shortName = "L" text,                          \
+        .longName = "Node L" text                       \
+    },                                                  \
+    {                                                   \
+        .id = UI_CONVERT_RETURN_ID_BASE + (number),     \
+        .type = UI_ITEM_INPUT,                          \
+        .order = -100,                                  \
+        .lane = 0,                                      \
+        .loopStatus = UI_LOOP_STATUS_OFF,               \
+        .focus = UI_FOCUS_NONE,                         \
+        .shortName = "RL" text,                         \
+        .longName = "Return L" text                     \
+    },                                                  \
+    {                                                   \
+        .id = UI_CONVERT_SEND_ID_BASE + (number),       \
+        .type = UI_ITEM_OUTPUT,                         \
+        .order = -100,                                  \
+        .lane = 0,                                      \
+        .loopStatus = UI_LOOP_STATUS_OFF,               \
+        .focus = UI_FOCUS_NONE,                         \
+        .shortName = "SL" text,                         \
+        .longName = "Send L" text                       \
+    }
 
 static UI_Item uiItems[] =
 {
@@ -233,6 +283,18 @@ static UI_Item uiItems[] =
         .shortName = "N13",
         .longName = "Node 13"
     },
+
+    /*
+     * Ersatz-Items fuer "Convert to In + Out", je Loop
+     * (siehe UI_CONVERT_ITEMS). Bei weiteren Loops hier
+     * ergaenzen.
+     */
+    UI_CONVERT_ITEMS(1, "01"),
+    UI_CONVERT_ITEMS(2, "02"),
+    UI_CONVERT_ITEMS(3, "03"),
+    UI_CONVERT_ITEMS(4, "04"),
+    UI_CONVERT_ITEMS(5, "05"),
+    UI_CONVERT_ITEMS(6, "06"),
 
 
     /*
@@ -577,6 +639,7 @@ static void UI_MenuHandleEnter(void);
 static void UI_MenuHandleReturn(void);
 static uint8_t UI_MenuGetRowCount(void);
 static uint8_t UI_MenuItemIsManualNode(void);
+static uint8_t UI_MenuItemIsConvertible(void);
 static void UI_MenuSavePreset(void);
 static void UI_MenuManagePresets(void);
 static void UI_DeleteSelectedManualNode(void);
@@ -723,7 +786,8 @@ typedef enum
     UI_MENU_PAGE_MANAGE_ACTIONS,
     UI_MENU_PAGE_LOOP_MIDI,
     UI_MENU_PAGE_LOOP_MIDI_GROUP,
-    UI_MENU_PAGE_PRESET_MIDI
+    UI_MENU_PAGE_PRESET_MIDI,
+    UI_MENU_PAGE_CONVERT_CONFIRM
 
 } UI_MenuPage;
 
@@ -2050,6 +2114,20 @@ if (item->order < 0)
         default:
             return 0;
     }
+}
+
+/*
+ * Ersatz-Items fuer "Convert to In + Out" (siehe UI_CONVERT_ITEMS).
+ */
+static uint8_t UI_IsConvertItem(
+    const UI_Item *item)
+{
+    return
+        (item->id > UI_CONVERT_NODE_ID_BASE &&
+         item->id <= (UI_CONVERT_SEND_ID_BASE +
+                      UI_CONVERT_MAX_LOOPS)) ?
+        1U :
+        0U;
 }
 
 static void UI_ClearConnections(void)
@@ -4002,8 +4080,13 @@ static void UI_EnsureEdgeColumns(void)
                  i < UI_ITEM_COUNT;
                  i++)
             {
-                if (uiItems[i].type ==
-                    UI_ITEM_OUTPUT)
+                /*
+                 * Inaktive Outputs (z.B. "Send Lnn" eines
+                 * nicht umgewandelten Loops) bleiben inaktiv.
+                 */
+                if (UI_IsPermanentItem(&uiItems[i]) &&
+                    uiItems[i].type ==
+                        UI_ITEM_OUTPUT)
                 {
                     uiItems[i].order =
                         newOutputOrder;
@@ -5453,12 +5536,14 @@ static uint8_t UI_PresetApplyLayout(
     }
 
     /*
-     * Ein- und Ausgaenge muessen immer vorhanden sein.
+     * Ein- und Ausgaenge muessen immer vorhanden sein (ausser denen
+     * umgewandelter Loops, siehe UI_CONVERT_ITEMS).
      */
     for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
     {
         if ((uiItems[i].type == UI_ITEM_INPUT ||
              uiItems[i].type == UI_ITEM_OUTPUT) &&
+            !UI_IsConvertItem(&uiItems[i]) &&
             !seen[i])
         {
             return 0U;
@@ -9843,7 +9928,9 @@ static uint8_t UI_MenuItemIsManualNode(void)
 static uint8_t UI_MenuGetRowCount(void)
 {
     if (uiMenuPage ==
-        UI_MENU_PAGE_DELETE_CONFIRM)
+            UI_MENU_PAGE_DELETE_CONFIRM ||
+        uiMenuPage ==
+            UI_MENU_PAGE_CONVERT_CONFIRM)
     {
         return 3U;
     }
@@ -9854,8 +9941,14 @@ static uint8_t UI_MenuGetRowCount(void)
         return UI_GENERAL_MENU_ENTRY_COUNT;
     }
 
-    return (UI_MenuItemIsManualNode() ||
-            UI_MenuItemIsLoop()) ?
+    if (UI_MenuItemIsLoop())
+    {
+        return UI_MenuItemIsConvertible() ?
+            4U :
+            3U;
+    }
+
+    return UI_MenuItemIsManualNode() ?
         3U :
         2U;
 }
@@ -9924,6 +10017,395 @@ static void UI_DeleteSelectedManualNode(void)
     UI_Draw();
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Loop-Menue: Convert to In + Out                                            */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Ids eines Loops und seiner Ersatz-Items (siehe UI_CONVERT_ITEMS).
+ */
+typedef struct
+{
+    uint8_t loopNumber;     /* 0 = L01, wie in UI_LoopStatusBits */
+    uint8_t loopId;
+    uint8_t nodeId;
+    uint8_t returnId;
+    uint8_t sendId;
+
+} UI_ConvertIds;
+
+
+/*
+ * Ermittelt die Ids zum Loop an loopIndex. Rueckgabe 0, wenn es kein
+ * Loop ist oder seine Ersatz-Items in uiItems fehlen.
+ */
+static uint8_t UI_ConvertGetIds(
+    int16_t loopIndex,
+    UI_ConvertIds *ids)
+{
+    if (loopIndex < 0 ||
+        loopIndex >= (int16_t)UI_ITEM_COUNT ||
+        uiItems[loopIndex].type != UI_ITEM_LOOP ||
+        uiItems[loopIndex].id > 255U)
+    {
+        return 0U;
+    }
+
+    uint8_t loopNumber = 0U;
+
+    for (int16_t i = 0; i < loopIndex; i++)
+    {
+        if (uiItems[i].type == UI_ITEM_LOOP)
+        {
+            loopNumber++;
+        }
+    }
+
+    if (loopNumber >= UI_CONVERT_MAX_LOOPS)
+    {
+        return 0U;
+    }
+
+    ids->loopNumber = loopNumber;
+    ids->loopId = (uint8_t)uiItems[loopIndex].id;
+    ids->nodeId =
+        (uint8_t)(UI_CONVERT_NODE_ID_BASE + loopNumber + 1U);
+    ids->returnId =
+        (uint8_t)(UI_CONVERT_RETURN_ID_BASE + loopNumber + 1U);
+    ids->sendId =
+        (uint8_t)(UI_CONVERT_SEND_ID_BASE + loopNumber + 1U);
+
+    return
+        (UI_FindItemIndexById(ids->nodeId) >= 0 &&
+         UI_FindItemIndexById(ids->returnId) >= 0 &&
+         UI_FindItemIndexById(ids->sendId) >= 0) ?
+        1U :
+        0U;
+}
+
+
+static uint8_t UI_MenuItemIsConvertible(void)
+{
+    UI_ConvertIds ids;
+
+    return
+        (UI_MenuItemIsLoop() &&
+         uiItems[uiMenuItemIndex].order >= 0 &&
+         UI_ConvertGetIds(uiMenuItemIndex, &ids)) ?
+        1U :
+        0U;
+}
+
+
+/*
+ * Niedrigste Lane der aktiven Items vom Typ type in der Spalte order.
+ * Rueckgabe 0, wenn es dort keines gibt.
+ */
+static uint8_t UI_ConvertLowestLane(
+    UI_ItemType type,
+    int16_t order,
+    int16_t *lane)
+{
+    uint8_t found = 0U;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (!UI_IsPermanentItem(&uiItems[i]) ||
+            uiItems[i].type != type ||
+            uiItems[i].order != order)
+        {
+            continue;
+        }
+
+        if (!found || uiItems[i].lane < *lane)
+        {
+            *lane = uiItems[i].lane;
+            found = 1U;
+        }
+    }
+
+    return found;
+}
+
+
+/*
+ * Wandelt im aktuellen Layout (uiItems) den Loop in In + Out um:
+ *
+ * - der manuelle Knoten "Lnn" nimmt den Platz des Loops ein, damit die
+ *   Struktur dahinter erhalten bleibt (nur wenn der Loop im Layout ist),
+ * - "Return Lnn" kommt in die linke Spalte unter den Input mit der
+ *   niedrigsten Lane,
+ * - "Send Lnn" kommt in die rechte Spalte unter den Output mit der
+ *   niedrigsten Lane.
+ *
+ * Danach werden Auto-Nodes und Verbindungen neu berechnet. MIDI und
+ * Fokus bleiben unberuehrt (macht der Aufrufer).
+ *
+ * Rueckgabe 0 (nichts geaendert), wenn der Loop schon umgewandelt ist.
+ */
+static uint8_t UI_ConvertLoopItems(const UI_ConvertIds *ids)
+{
+    int16_t loopIndex = UI_FindItemIndexById(ids->loopId);
+    int16_t nodeIndex = UI_FindItemIndexById(ids->nodeId);
+    int16_t returnIndex = UI_FindItemIndexById(ids->returnId);
+    int16_t sendIndex = UI_FindItemIndexById(ids->sendId);
+
+    if (loopIndex < 0 ||
+        nodeIndex < 0 ||
+        returnIndex < 0 ||
+        sendIndex < 0 ||
+        uiItems[nodeIndex].order >= 0 ||
+        uiItems[returnIndex].order >= 0 ||
+        uiItems[sendIndex].order >= 0)
+    {
+        return 0U;
+    }
+
+    int16_t inputOrder = UI_GetMinimumPermanentOrder();
+    int16_t outputOrder = UI_GetMaximumPermanentOrder();
+    int16_t inputLane = 0;
+    int16_t outputLane = 0;
+
+    if (!UI_ConvertLowestLane(UI_ITEM_INPUT, inputOrder, &inputLane) ||
+        !UI_ConvertLowestLane(UI_ITEM_OUTPUT, outputOrder, &outputLane))
+    {
+        return 0U;
+    }
+
+    if (uiItems[loopIndex].order >= 0)
+    {
+        uiItems[nodeIndex].order = uiItems[loopIndex].order;
+        uiItems[nodeIndex].lane = uiItems[loopIndex].lane;
+        uiItems[nodeIndex].focus = UI_FOCUS_NONE;
+
+        uiItems[loopIndex].order = UI_INACTIVE_ORDER;
+        uiItems[loopIndex].lane = 0;
+        uiItems[loopIndex].focus = UI_FOCUS_NONE;
+    }
+
+    uiItems[returnIndex].order = inputOrder;
+    uiItems[returnIndex].lane = (int16_t)(inputLane - 1);
+    uiItems[returnIndex].focus = UI_FOCUS_NONE;
+
+    uiItems[sendIndex].order = outputOrder;
+    uiItems[sendIndex].lane = (int16_t)(outputLane - 1);
+    uiItems[sendIndex].focus = UI_FOCUS_NONE;
+
+    UI_RemoveAllAutoNodes();
+    UI_NormalizeOrders();
+    UI_EnsureEdgeColumns();
+
+    if (!UI_RebuildCalculatedConnections())
+    {
+        UI_ClearConnections();
+    }
+
+    return 1U;
+}
+
+
+/*
+ * Uebernimmt die Positionen eines gespeicherten Layouts in uiItems
+ * (ohne MIDI, Loop-Status und Fokus). Nicht enthaltene Items werden
+ * inaktiv. Der Puffer wird vorher wie in UI_PresetApplyLayout geprueft.
+ *
+ * Rueckgabe 0 bei ungueltigem Puffer (uiItems unveraendert).
+ */
+static uint8_t UI_ConvertSetPositions(
+    const uint8_t *layout,
+    uint8_t length)
+{
+    uint8_t seen[UI_ITEM_COUNT];
+
+    memset(seen, 0, sizeof(seen));
+
+    if (length < 1U ||
+        (uint16_t)(1U + (3U * layout[0])) > length)
+    {
+        return 0U;
+    }
+
+    for (uint8_t entry = 0U; entry < layout[0]; entry++)
+    {
+        uint8_t base = (uint8_t)(1U + (3U * entry));
+        int16_t itemIndex = UI_FindItemIndexById(layout[base]);
+        int8_t order = (int8_t)layout[base + 1U];
+
+        if (itemIndex < 0 ||
+            uiItems[itemIndex].type == UI_ITEM_AUTO_NODE ||
+            seen[itemIndex] ||
+            order < 0 ||
+            order >= UI_MAX_ORDER_COUNT)
+        {
+            return 0U;
+        }
+
+        seen[itemIndex] = 1U;
+    }
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type != UI_ITEM_AUTO_NODE)
+        {
+            uiItems[i].order = UI_INACTIVE_ORDER;
+            uiItems[i].lane = 0;
+        }
+    }
+
+    for (uint8_t entry = 0U; entry < layout[0]; entry++)
+    {
+        uint8_t base = (uint8_t)(1U + (3U * entry));
+        int16_t itemIndex = UI_FindItemIndexById(layout[base]);
+
+        uiItems[itemIndex].order = (int8_t)layout[base + 1U];
+        uiItems[itemIndex].lane = (int8_t)layout[base + 2U];
+    }
+
+    UI_RemoveAllAutoNodes();
+
+    return 1U;
+}
+
+
+/*
+ * Baut alle gespeicherten Presets entsprechend um (Antwort "Yes" auf
+ * "Convert presets too?"). Jedes Layout wird dafuer kurz in uiItems
+ * hergestellt, umgewandelt, neu berechnet und wieder serialisiert, damit
+ * es genau dem entspricht, was beim Laden entsteht (Rueckkopplungsschutz
+ * in UI_PresetMatchesCurrent). Danach wird das aktuelle Layout
+ * wiederhergestellt.
+ *
+ * Der Loop faellt aus Loop-Status und On/Bypass-Zustand heraus, Name,
+ * Programme und zusaetzliche MIDI-Meldungen bleiben. Presets, in denen
+ * der Loop schon umgewandelt ist, bleiben unveraendert.
+ */
+static void UI_ConvertPresets(const UI_ConvertIds *ids)
+{
+    int16_t savedOrder[UI_ITEM_COUNT];
+    int16_t savedLane[UI_ITEM_COUNT];
+    UI_Connection savedConnections[UI_MAX_CONNECTIONS];
+    uint16_t savedConnectionCount = uiConnectionCount;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        savedOrder[i] = uiItems[i].order;
+        savedLane[i] = uiItems[i].lane;
+    }
+
+    memcpy(savedConnections, uiConnections, sizeof(savedConnections));
+
+    for (uint8_t bank = 0U; bank < PRESET_BANK_COUNT; bank++)
+    {
+        for (uint8_t slot = 0U; slot < PRESET_SLOTS_PER_BANK; slot++)
+        {
+            char name[PRESET_NAME_LENGTH];
+            uint8_t layout[PRESET_LAYOUT_MAX_BYTES];
+            uint8_t length = 0U;
+            uint32_t loopStatus = 0UL;
+            uint8_t programs[PRESET_LOOP_PROGRAM_BYTES];
+            PresetLoopStates states;
+
+            if (!PresetStore_GetSlotName(bank, slot, name) ||
+                PresetStore_ReadLayout(bank, slot, layout, &length) !=
+                    PRESET_STORE_OK ||
+                PresetStore_ReadLoopStatus(bank, slot, &loopStatus) !=
+                    PRESET_STORE_OK ||
+                PresetStore_ReadLoopPrograms(bank, slot, programs) !=
+                    PRESET_STORE_OK ||
+                PresetStore_ReadLoopStates(bank, slot, &states) !=
+                    PRESET_STORE_OK)
+            {
+                continue;
+            }
+
+            if (!UI_ConvertSetPositions(layout, length) ||
+                !UI_ConvertLoopItems(ids))
+            {
+                continue;
+            }
+
+            length = UI_PresetSerializeLayout(layout, sizeof(layout));
+
+            if (length == 0U)
+            {
+                continue;
+            }
+
+            loopStatus &= ~(1UL << ids->loopNumber);
+            states.mask &= ~(1UL << ids->loopNumber);
+            states.state[ids->loopNumber] = 0UL;
+
+            (void)PresetStore_SavePreset(
+                bank,
+                slot,
+                name,
+                layout,
+                length,
+                loopStatus,
+                programs,
+                &states);
+        }
+    }
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        uiItems[i].order = savedOrder[i];
+        uiItems[i].lane = savedLane[i];
+    }
+
+    memcpy(uiConnections, savedConnections, sizeof(savedConnections));
+    uiConnectionCount = savedConnectionCount;
+}
+
+
+/*
+ * "Convert to In + Out" fuer den Loop im Menue. Der Loop wird wie beim
+ * Laden eines Presets ohne ihn ausgeschaltet (Off an das Effektgeraet),
+ * danach umgewandelt. convertPresets = 1: alle gespeicherten Presets
+ * werden ebenfalls umgebaut, sonst nur das aktuelle Layout (und damit
+ * kuenftig gespeicherte Presets). Alte Presets bringen beim Laden den
+ * Loop zurueck.
+ */
+static void UI_ConvertSelectedLoop(uint8_t convertPresets)
+{
+    UI_ConvertIds ids;
+
+    if (!UI_MenuItemIsConvertible() ||
+        !UI_ConvertGetIds(uiMenuItemIndex, &ids))
+    {
+        return;
+    }
+
+    int16_t loopIndex = uiMenuItemIndex;
+
+    if (UI_ConvertLoopItems(&ids))
+    {
+        UI_LoopSetActive(loopIndex, 0U, 0U);
+
+        grabStartStateValid = 0U;
+
+        if (convertPresets)
+        {
+            UI_ConvertPresets(&ids);
+        }
+
+        int16_t nodeIndex = UI_FindItemIndexById(ids.nodeId);
+
+        UI_MenuSetConfirmedItem(
+            (nodeIndex >= 0 && uiItems[nodeIndex].order >= 0) ?
+            nodeIndex :
+            UI_FindFirstSelectableIndex()
+        );
+    }
+
+    uiMenuPage = UI_MENU_PAGE_ROOT;
+    uiMenuControlMode =
+        UI_MENU_CONTROL_NAVIGATION;
+    uiMode = UI_MODE_STATE_VIEW;
+
+    UI_Draw();
+}
 
 static void UI_DrawMenu(void)
 {
@@ -10025,6 +10507,27 @@ static void UI_DrawMenu(void)
     }
 
     if (uiMenuPage ==
+        UI_MENU_PAGE_CONVERT_CONFIRM)
+    {
+        UI_DrawMenuRow(
+            UI_MENU_CONFIRM_TITLE_ROW,
+            "Convert presets too?"
+        );
+
+        UI_DrawMenuRow(
+            UI_MENU_CONVERT_YES_ROW,
+            "Yes"
+        );
+
+        UI_DrawMenuRow(
+            UI_MENU_CONVERT_NO_ROW,
+            "No"
+        );
+
+        return;
+    }
+
+    if (uiMenuPage ==
         UI_MENU_PAGE_GENERAL)
     {
         for (uint8_t i = 0U;
@@ -10063,6 +10566,14 @@ static void UI_DrawMenu(void)
             UI_MENU_LOOP_MIDI_ROW,
             "Midi"
         );
+
+        if (UI_MenuItemIsConvertible())
+        {
+            UI_DrawMenuRow(
+                UI_MENU_LOOP_CONVERT_ROW,
+                "Convert to In + Out"
+            );
+        }
     }
 }
 
@@ -10308,6 +10819,26 @@ static void UI_MenuHandleEnter(void)
         return;
     }
 
+    if (uiMenuPage ==
+        UI_MENU_PAGE_CONVERT_CONFIRM)
+    {
+        if (uiMenuSelectedRow ==
+                UI_MENU_CONVERT_YES_ROW ||
+            uiMenuSelectedRow ==
+                UI_MENU_CONVERT_NO_ROW)
+        {
+            UI_ConvertSelectedLoop(
+                (uiMenuSelectedRow ==
+                 UI_MENU_CONVERT_YES_ROW) ?
+                1U :
+                0U
+            );
+        }
+
+        /* Titelzeile: nichts tun. */
+        return;
+    }
+
     if (uiMenuControlMode ==
         UI_MENU_CONTROL_ITEM_SELECTION)
     {
@@ -10349,6 +10880,18 @@ static void UI_MenuHandleEnter(void)
         UI_MenuItemIsLoop())
     {
         UI_LmOpen();
+        return;
+    }
+
+    if (uiMenuSelectedRow ==
+            UI_MENU_LOOP_CONVERT_ROW &&
+        UI_MenuItemIsConvertible())
+    {
+        uiMenuPage =
+            UI_MENU_PAGE_CONVERT_CONFIRM;
+        uiMenuSelectedRow =
+            UI_MENU_CONVERT_NO_ROW;
+        UI_DrawMenu();
         return;
     }
 
@@ -10430,6 +10973,16 @@ static void UI_MenuHandleReturn(void)
         uiMenuPage = UI_MENU_PAGE_ROOT;
         uiMenuSelectedRow =
             UI_MENU_DELETE_NODE_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_CONVERT_CONFIRM)
+    {
+        uiMenuPage = UI_MENU_PAGE_ROOT;
+        uiMenuSelectedRow =
+            UI_MENU_LOOP_CONVERT_ROW;
         UI_DrawMenu();
         return;
     }
@@ -10743,7 +11296,8 @@ static int16_t UI_FindInactiveManualNodeIndex(void)
          i++)
     {
         if (uiItems[i].type !=
-            UI_ITEM_MANUAL_NODE)
+                UI_ITEM_MANUAL_NODE ||
+            UI_IsConvertItem(&uiItems[i]))
         {
             continue;
         }

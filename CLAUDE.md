@@ -13,12 +13,12 @@ Sprache mit dem Nutzer: Deutsch.
   Opto-Eingang H11L1, TRS Typ A.
 
 ## Dateien
-- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, PRESET_MIDI, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
+- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, PRESET_MIDI, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP, CONVERT_CONFIRM), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
 - `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (380 belegt: Loop-Status-Bitmap an Offset 216, Loop-Programme an 220 = Marker + 224 = 32 Byte, zusätzliche MIDI-Meldungen an 256 = Marker/Anzahl + 260 = 16 × 3 Byte, On/Bypass-Zustände an 308 = Marker + 312 = Loop-Maske + 316 = max. 16 × 4 Byte; Rest 100 Byte reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
 - `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`. Bytes mit Frame-/Noise-/Parity-Fehler werden verworfen (Parser-Reset), `MIDI_Poll()` in der Main-Loop startet den Empfang neu, falls das Re-Arm im Interrupt an der HAL-Sperre von `HAL_UART_Transmit` scheitert. Zähler `debugMidiRx*`.
 - `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop. Queue enthält rohe CCs; Zuordnung Loop/Preset erst in der Main-Loop.
 - `loop_midi.c/.h` – MIDI-Steuerung der Effektgeräte in den Loops: Konfiguration (Kanal, On/Bypass-Gruppen), Gruppenlogik, Senden, Echo-Filter, EEPROM-Serialisierung.
-- `font5x7.c` – Font: kein `.`-Glyph (`,` vorhanden), Kleinbuchstaben werden groß dargestellt, unbekannte Zeichen = Kästchen.
+- `font5x7.c` – Font: kein `.`-Glyph (`,` und `+` vorhanden), Kleinbuchstaben werden groß dargestellt, unbekannte Zeichen = Kästchen.
 
 ## Presets
 - Bänke 0–63, je 24 Presets (Anzeige "01: name"), insgesamt höchstens 30 im EEPROM.
@@ -38,6 +38,12 @@ Sprache mit dem Nutzer: Deutsch.
 - Eingabe per Encoder (CC, dann Wert; "empty" löscht den Schalter) oder MIDI Learn (Kette: nach gelernter Meldung wartet die nächste "empty"-Zeile). Einzelne Meldung ohne Off wird beim Verlassen zum Toggle. Gespeichert wird beim Verlassen der Midi-Seite (auch per Menü-Taste).
 - Loop-CCs haben Vorrang vor Preset-CCs (gleicher Kanal). Echo-Filter: eigene Loop-Meldungen und zusätzliche Preset-Meldungen innerhalb 200 ms werden ignoriert (64 Einträge). Loop-MIDI wird auch bei offenem Menü verarbeitet (ohne Neuzeichnen).
 - Presets speichern den Loop-Status (Bit n = n-ter Loop in `uiItems`, max. 31, Bit 31 = gültig). Alte Presets (0) lassen die Loops unverändert.
+
+## Convert to In + Out
+- Loop-Menü (4. Zeile, Menü-Overlay jetzt 4 Zeilen hoch): "Convert to In + Out" -> "Convert presets too?" Yes / No (Vorauswahl No, Return bricht ab).
+- Je Loop feste Ersatz-Items (`UI_CONVERT_ITEMS`, id = Basis + Loopnummer): manueller Knoten "L01"/"Node L01" (104+n), Input "RL01"/"Return L01" (136+n), Output "SL01"/"Send L01" (168+n). Für weitere Loops dort ergänzen. Nicht aus dem normalen Knoten-Pool, nicht Pflicht im Preset-Layout.
+- Umwandeln: Knoten an die Stelle des Loops, Return in die linke Spalte unter den Input mit der niedrigsten Lane, Send in die rechte Spalte unter den Output mit der niedrigsten Lane; Loop wird ausgeschaltet (Off an das Gerät) und inaktiv. Danach normales Auto-Routing (die neuen In/Out werden wie jedes Item verbunden).
+- Zustand steht nur im Layout: alte Presets bringen den Loop zurück. "Yes" baut alle Presets um (Layout wird in uiItems hergestellt, umgewandelt, neu berechnet und serialisiert, danach aktuelles Layout wiederhergestellt; Loop-Bit in Status und On/Bypass gelöscht). Presets ohne den Loop bekommen nur Return/Send.
 
 ## MIDI-Protokoll
 - Empfang: Program Change = Bank (0–63); CC1–24 = Preset laden (Wert egal).
