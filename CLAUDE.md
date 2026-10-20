@@ -44,6 +44,8 @@ Sprache mit dem Nutzer: Deutsch.
 - Je Loop feste Ersatz-Items (`UI_CONVERT_ITEMS`, id = Basis + Loopnummer): manueller Knoten "L01"/"Node L01" (104+n), Input "RL01"/"Return L01" (136+n), Output "SL01"/"Send L01" (168+n). Für weitere Loops dort ergänzen. Nicht aus dem normalen Knoten-Pool, nicht Pflicht im Preset-Layout.
 - Umwandeln: Knoten an die Stelle des Loops, Return in die linke Spalte unter den Input mit der niedrigsten Lane, Send in die rechte Spalte unter den Output mit der niedrigsten Lane; Loop wird ausgeschaltet (Off an das Gerät) und inaktiv. Danach normales Auto-Routing (die neuen In/Out werden wie jedes Item verbunden).
 - Ins/Outs sind horizontal verschiebbar. Randregel (`UI_ValidateEdgeRules`): ganz links nur und mindestens ein In, ganz rechts nur und mindestens ein Out; weitere Ins/Outs dürfen auch innen liegen. In am linken / Out am rechten Rand kann nicht weiter nach außen. Auf ein belegtes Feld: Tausch; landet dadurch ein anderes Item in einer Randspalte, greift wie bei Loops "Item betritt die Randspalte" (`UI_EnsureEdgeColumns` schiebt den Rand nach außen). `UI_EnsureEdgeColumns` verschiebt nur die Ins/Outs der Randspalten, innere bleiben (bzw. wandern mit).
+- Vertikal (`UI_LaneWithinNeighbourRange`): auf ein freies Feld höchstens eine Lane über/unter die höchste/niedrigste Lane der permanenten Items in den nächsten Spalten links/rechts mit permanenten Items (Spalten nur mit Auto-Nodes zählen nicht). Belegtes Feld: Regel 2.6 (rechts daneben).
+- Routing: Ist das nächste Ziel in derselben Lane, aber die Lane davor blockiert (innerer In/Out), versucht der Auto-Node auch die Nachbar-Lanes (`sideDirection`), sonst konvergierte das Routing nicht.
 - Zustand steht nur im Layout: alte Presets bringen den Loop zurück. "Yes" baut alle Presets um (Layout wird in uiItems hergestellt, umgewandelt, neu berechnet und serialisiert, danach aktuelles Layout wiederhergestellt; Loop-Bit in Status und On/Bypass gelöscht). Presets ohne den Loop bekommen nur Return/Send.
 
 ## MIDI-Protokoll
@@ -67,3 +69,4 @@ Sprache mit dem Nutzer: Deutsch.
 - Copy-Funktion in Manage Presets.
 - MIDI-Empfang per DMA statt Byte-Interrupt.
 - Externer Speicher für 64×24 Presets (EEPROM reicht nur für 30).
+- Auto-Routing findet bei sehr verschachtelten Layouts (viele Spalten, weit auseinanderliegende Lanes) keine Lösung, dann fehlen alle Verbindungen (Zufallstest, auch vor Convert to In + Out).
