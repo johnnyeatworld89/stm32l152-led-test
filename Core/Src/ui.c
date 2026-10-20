@@ -2736,6 +2736,18 @@ static uint8_t UI_ConnectOutputThroughAutoNode(
         *structureChanged = 1U;
     }
 
+    /*
+     * Richtung 0 (naechstes Ziel in derselben Lane): Ist die eigene
+     * Lane blockiert (z.B. durch einen inneren Input bzw. Output),
+     * werden zusaetzlich beide Nachbar-Lanes versucht, zuerst die
+     * Richtung zur Lane 0. Sonst wuerde immer wieder in derselben
+     * Lane eine Spalte eingefuegt und das Routing kaeme nie zum Ende.
+     */
+    int8_t sideDirection =
+        (direction != 0) ?
+        direction :
+        ((sourceItem->lane > 0) ? -1 : 1);
+
     int16_t candidateLanes[3];
     uint8_t candidateCount = 0;
 
@@ -2770,6 +2782,16 @@ static uint8_t UI_ConnectOutputThroughAutoNode(
     {
         candidateLanes[candidateCount++] =
             oppositeLane;
+    }
+
+    if (direction == 0 &&
+        candidateCount == 1)
+    {
+        candidateLanes[candidateCount++] =
+            candidateLanes[0] + sideDirection;
+
+        candidateLanes[candidateCount++] =
+            candidateLanes[0] - sideDirection;
     }
 
     for (uint8_t candidate = 0;
@@ -2838,7 +2860,7 @@ static uint8_t UI_ConnectOutputThroughAutoNode(
     int16_t autoNodeIndex =
         UI_ActivateAutoNodeAt(
             targetOrder,
-            sourceItem->lane + direction
+            sourceItem->lane + sideDirection
         );
 
     if (autoNodeIndex < 0)
@@ -2914,6 +2936,18 @@ static uint8_t UI_ConnectInputThroughAutoNode(
         *structureChanged = 1U;
     }
 
+    /*
+     * Richtung 0 (naechstes Ziel in derselben Lane): Ist die eigene
+     * Lane blockiert (z.B. durch einen inneren Input bzw. Output),
+     * werden zusaetzlich beide Nachbar-Lanes versucht, zuerst die
+     * Richtung zur Lane 0. Sonst wuerde immer wieder in derselben
+     * Lane eine Spalte eingefuegt und das Routing kaeme nie zum Ende.
+     */
+    int8_t sideDirection =
+        (direction != 0) ?
+        direction :
+        ((targetItem->lane > 0) ? -1 : 1);
+
     int16_t candidateLanes[3];
     uint8_t candidateCount = 0;
 
@@ -2948,6 +2982,16 @@ static uint8_t UI_ConnectInputThroughAutoNode(
     {
         candidateLanes[candidateCount++] =
             oppositeLane;
+    }
+
+    if (direction == 0 &&
+        candidateCount == 1)
+    {
+        candidateLanes[candidateCount++] =
+            candidateLanes[0] + sideDirection;
+
+        candidateLanes[candidateCount++] =
+            candidateLanes[0] - sideDirection;
     }
 
     for (uint8_t candidate = 0;
@@ -3019,7 +3063,7 @@ static uint8_t UI_ConnectInputThroughAutoNode(
     int16_t autoNodeIndex =
         UI_ActivateAutoNodeAt(
             insertionOrder,
-            targetItem->lane + direction
+            targetItem->lane + sideDirection
         );
 
     if (autoNodeIndex < 0)
@@ -11938,6 +11982,77 @@ static void UI_InsertOrderBefore(
     }
 }
 
+/*
+ * Vertikale Grenze: Ein Item darf hoechstens eine Lane ueber die hoechste
+ * bzw. unter die niedrigste Lane der permanenten Items in den
+ * Nachbarspalten hinaus. Nachbarspalten sind die naechsten Spalten links
+ * und rechts mit permanenten Items (Spalten nur mit Auto-Nodes zaehlen
+ * nicht). Ohne solche Items gibt es keine Grenze.
+ */
+static uint8_t UI_LaneWithinNeighbourRange(
+    int16_t itemIndex,
+    int16_t lane)
+{
+    int16_t order = uiItems[itemIndex].order;
+    int16_t previousOrder = -1;
+    int16_t nextOrder = -1;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if ((int16_t)i == itemIndex ||
+            !UI_IsPermanentItem(&uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order < order &&
+            uiItems[i].order > previousOrder)
+        {
+            previousOrder = uiItems[i].order;
+        }
+
+        if (uiItems[i].order > order &&
+            (nextOrder < 0 || uiItems[i].order < nextOrder))
+        {
+            nextOrder = uiItems[i].order;
+        }
+    }
+
+    int16_t lowestLane = 0;
+    int16_t highestLane = 0;
+    uint8_t found = 0U;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if ((int16_t)i == itemIndex ||
+            !UI_IsPermanentItem(&uiItems[i]) ||
+            (uiItems[i].order != previousOrder &&
+             uiItems[i].order != nextOrder))
+        {
+            continue;
+        }
+
+        if (!found || uiItems[i].lane < lowestLane)
+        {
+            lowestLane = uiItems[i].lane;
+        }
+
+        if (!found || uiItems[i].lane > highestLane)
+        {
+            highestLane = uiItems[i].lane;
+        }
+
+        found = 1U;
+    }
+
+    return
+        (!found ||
+         (lane <= highestLane + 1 &&
+          lane >= lowestLane - 1)) ?
+        1U :
+        0U;
+}
+
 static void UI_MoveGrabbedVertical(
     int8_t direction)
 {
@@ -12008,6 +12123,19 @@ static void UI_MoveGrabbedVertical(
             targetLane,
             grabbedIndex
         );
+
+
+    /*
+     * Auf eine freie Position nur innerhalb der
+     * Grenze durch die Nachbarspalten.
+     */
+    if (targetPermanentIndex < 0 &&
+        !UI_LaneWithinNeighbourRange(
+            grabbedIndex,
+            targetLane))
+    {
+        return;
+    }
 
 
     /*
