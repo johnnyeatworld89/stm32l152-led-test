@@ -4,6 +4,11 @@
 #include "stm32l1xx_hal.h"
 
 /*
+ * Sonderzeichen ausserhalb von ASCII: Haken (z.B. markierte Presets).
+ */
+#define FONT5X7_CHAR_CHECK  '\x01'
+
+/*
  * 5x7 Bitmap Font
  *
  * Jede Zeichenposition ist:
