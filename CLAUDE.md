@@ -13,7 +13,7 @@ Sprache mit dem Nutzer: Deutsch.
   Opto-Eingang H11L1, TRS Typ A.
 
 ## Dateien
-- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, PRESET_MIDI, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP, CONVERT_CONFIRM), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
+- `ui.c/.h` – UI, Routing-Editor, Menüs (ROOT, GENERAL, SAVE_PRESET, SAVE_NAME, MANAGE_PRESETS, MANAGE_ACTIONS, PRESET_MIDI, DELETE_CONFIRM, LOOP_MIDI, LOOP_MIDI_GROUP, CONVERT_CONFIRM, MERGE_CONFIRM, MERGE_ERROR), Namens-Editor, Footer mit Bankanzeige. Loop-Status zentral über `UI_LoopSetActive`.
 - `preset_store.c/.h` – Data-EEPROM (0x08080000, 16 KB): 64 Banknamen à 16 Byte, max. 30 Records à 480 Byte (380 belegt: Loop-Status-Bitmap an Offset 216, Loop-Programme an 220 = Marker + 224 = 32 Byte, zusätzliche MIDI-Meldungen an 256 = Marker/Anzahl + 260 = 16 × 3 Byte, On/Bypass-Zustände an 308 = Marker + 312 = Loop-Maske + 316 = max. 16 × 4 Byte; Rest 100 Byte reserviert für Schaltplan), danach Config-Block (0x3C40, 8 Byte Header + 952 Byte, Loop-MIDI). Gültig-Marker wird zuletzt geschrieben.
 - `midi.c/.h` – UART-Treiber, Parser, schwache `MIDI_MessageReceived()`. Bytes mit Frame-/Noise-/Parity-Fehler werden verworfen (Parser-Reset), `MIDI_Poll()` in der Main-Loop startet den Empfang neu, falls das Re-Arm im Interrupt an der HAL-Sperre von `HAL_UART_Transmit` scheitert. Zähler `debugMidiRx*`.
 - `midi_presets.c/.h` – MIDI-Steuerung der Presets, `MidiPresets_Process()` in der Main-Loop. Queue enthält rohe CCs; Zuordnung Loop/Preset erst in der Main-Loop.
@@ -39,13 +39,14 @@ Sprache mit dem Nutzer: Deutsch.
 - Loop-CCs haben Vorrang vor Preset-CCs (gleicher Kanal). Echo-Filter: eigene Loop-Meldungen und zusätzliche Preset-Meldungen innerhalb 200 ms werden ignoriert (64 Einträge). Loop-MIDI wird auch bei offenem Menü verarbeitet (ohne Neuzeichnen).
 - Presets speichern den Loop-Status (Bit n = n-ter Loop in `uiItems`, max. 31, Bit 31 = gültig). Alte Presets (0) lassen die Loops unverändert.
 
-## Convert to In + Out
+## Convert to In + Out / Merge to Loop
 - Loop-Menü (4. Zeile, Menü-Overlay jetzt 4 Zeilen hoch): "Convert to In + Out" -> "Convert presets too?" Yes / No (Vorauswahl No, Return bricht ab).
 - Je Loop feste Ersatz-Items (`UI_CONVERT_ITEMS`, id = Basis + Loopnummer): manueller Knoten "L01"/"Node L01" (104+n), Input "RL01"/"Return L01" (136+n), Output "SL01"/"Send L01" (168+n). Für weitere Loops dort ergänzen. Nicht aus dem normalen Knoten-Pool, nicht Pflicht im Preset-Layout.
 - Umwandeln: Knoten an die Stelle des Loops, Return in die linke Spalte unter den Input mit der niedrigsten Lane, Send in die rechte Spalte unter den Output mit der niedrigsten Lane; Loop wird ausgeschaltet (Off an das Gerät) und inaktiv. Danach normales Auto-Routing (die neuen In/Out werden wie jedes Item verbunden).
 - Ins/Outs sind horizontal verschiebbar. Randregel (`UI_ValidateEdgeRules`): ganz links nur und mindestens ein In, ganz rechts nur und mindestens ein Out; weitere Ins/Outs dürfen auch innen liegen. In am linken / Out am rechten Rand kann nicht weiter nach außen. Auf ein belegtes Feld: Tausch; landet dadurch ein anderes Item in einer Randspalte, greift wie bei Loops "Item betritt die Randspalte" (`UI_EnsureEdgeColumns` schiebt den Rand nach außen). `UI_EnsureEdgeColumns` verschiebt nur die Ins/Outs der Randspalten, innere bleiben (bzw. wandern mit).
 - Vertikal (`UI_LaneWithinNeighbourRange`): auf ein freies Feld höchstens eine Lane über/unter die höchste/niedrigste Lane der permanenten Items in den nächsten Spalten links/rechts mit permanenten Items (Spalten nur mit Auto-Nodes zählen nicht). Belegtes Feld: Regel 2.6 (rechts daneben).
 - Routing: Ist das nächste Ziel in derselben Lane, aber die Lane davor blockiert (innerer In/Out), versucht der Auto-Node auch die Nachbar-Lanes (`sideDirection`), sonst konvergierte das Routing nicht.
+- Merge to Loop: In-/Out-Menü von "Return Lnn"/"Send Lnn" (3. Zeile, nur wenn der Loop nicht im Layout ist) -> "Merge presets too?" Yes / No. Vorher `UI_MergeCheck`: ohne Return/Send muss ganz links nur und mindestens ein In, ganz rechts nur und mindestens ein Out bleiben, sonst Seite MERGE_ERROR ("Merge not possible:" / "Leftmost column needs an In" bzw. "Rightmost column needs an Out", OK). Loop nimmt den Platz des Knotens "Lnn" ein; ohne Knoten zweite Spalte von rechts, Lane 0 (belegt oder nur Randspalten: neue Spalte vor der Out-Spalte). Loop bleibt aus. "Yes" baut Presets über `UI_ConvertPresets(ids, 1)` zurück, Presets, in denen die Randregel verletzt würde, bleiben unverändert.
 - Zustand steht nur im Layout: alte Presets bringen den Loop zurück. "Yes" baut alle Presets um (Layout wird in uiItems hergestellt, umgewandelt, neu berechnet und serialisiert, danach aktuelles Layout wiederhergestellt; Loop-Bit in Status und On/Bypass gelöscht). Presets ohne den Loop bekommen nur Return/Send.
 
 ## MIDI-Protokoll

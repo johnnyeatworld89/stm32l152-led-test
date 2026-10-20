@@ -95,6 +95,10 @@
 #define UI_MENU_CONVERT_YES_ROW      1U
 #define UI_MENU_CONVERT_NO_ROW       2U
 
+/* In-/Out-Menue: "Merge to Loop" (nur Return/Send umgewandelter Loops). */
+#define UI_MENU_IO_MERGE_ROW         2U
+#define UI_MENU_MERGE_ERROR_OK_ROW   3U
+
 /*
  * Ersatz-Items fuer "Convert to In + Out" (Loop-Menue): je Loop ein
  * manueller Knoten "Lnn" an der Stelle des Loops, ein Input "Return Lnn"
@@ -640,6 +644,7 @@ static void UI_MenuHandleReturn(void);
 static uint8_t UI_MenuGetRowCount(void);
 static uint8_t UI_MenuItemIsManualNode(void);
 static uint8_t UI_MenuItemIsConvertible(void);
+static uint8_t UI_MenuItemIsMergeable(void);
 static void UI_MenuSavePreset(void);
 static void UI_MenuManagePresets(void);
 static void UI_DeleteSelectedManualNode(void);
@@ -787,7 +792,9 @@ typedef enum
     UI_MENU_PAGE_LOOP_MIDI,
     UI_MENU_PAGE_LOOP_MIDI_GROUP,
     UI_MENU_PAGE_PRESET_MIDI,
-    UI_MENU_PAGE_CONVERT_CONFIRM
+    UI_MENU_PAGE_CONVERT_CONFIRM,
+    UI_MENU_PAGE_MERGE_CONFIRM,
+    UI_MENU_PAGE_MERGE_ERROR
 
 } UI_MenuPage;
 
@@ -9982,9 +9989,17 @@ static uint8_t UI_MenuGetRowCount(void)
     if (uiMenuPage ==
             UI_MENU_PAGE_DELETE_CONFIRM ||
         uiMenuPage ==
-            UI_MENU_PAGE_CONVERT_CONFIRM)
+            UI_MENU_PAGE_CONVERT_CONFIRM ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MERGE_CONFIRM)
     {
         return 3U;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MERGE_ERROR)
+    {
+        return 4U;
     }
 
     if (uiMenuPage ==
@@ -10000,7 +10015,8 @@ static uint8_t UI_MenuGetRowCount(void)
             3U;
     }
 
-    return UI_MenuItemIsManualNode() ?
+    return (UI_MenuItemIsManualNode() ||
+            UI_MenuItemIsMergeable()) ?
         3U :
         2U;
 }
@@ -10322,7 +10338,8 @@ static uint8_t UI_ConvertSetPositions(
 
 /*
  * Baut alle gespeicherten Presets entsprechend um (Antwort "Yes" auf
- * "Convert presets too?"). Jedes Layout wird dafuer kurz in uiItems
+ * "Convert presets too?", mit merge = 1 auf "Merge presets too?", dann
+ * mit UI_MergeLoopItems statt UI_ConvertLoopItems). Jedes Layout wird dafuer kurz in uiItems
  * hergestellt, umgewandelt, neu berechnet und wieder serialisiert, damit
  * es genau dem entspricht, was beim Laden entsteht (Rueckkopplungsschutz
  * in UI_PresetMatchesCurrent). Danach wird das aktuelle Layout
@@ -10332,7 +10349,11 @@ static uint8_t UI_ConvertSetPositions(
  * Programme und zusaetzliche MIDI-Meldungen bleiben. Presets, in denen
  * der Loop schon umgewandelt ist, bleiben unveraendert.
  */
-static void UI_ConvertPresets(const UI_ConvertIds *ids)
+static uint8_t UI_MergeLoopItemsOk(const UI_ConvertIds *ids);
+
+static void UI_ConvertPresets(
+    const UI_ConvertIds *ids,
+    uint8_t merge)
 {
     int16_t savedOrder[UI_ITEM_COUNT];
     int16_t savedLane[UI_ITEM_COUNT];
@@ -10372,7 +10393,9 @@ static void UI_ConvertPresets(const UI_ConvertIds *ids)
             }
 
             if (!UI_ConvertSetPositions(layout, length) ||
-                !UI_ConvertLoopItems(ids))
+                !(merge ?
+                  UI_MergeLoopItemsOk(ids) :
+                  UI_ConvertLoopItems(ids)))
             {
                 continue;
             }
@@ -10439,7 +10462,7 @@ static void UI_ConvertSelectedLoop(uint8_t convertPresets)
 
         if (convertPresets)
         {
-            UI_ConvertPresets(&ids);
+            UI_ConvertPresets(&ids, 0U);
         }
 
         int16_t nodeIndex = UI_FindItemIndexById(ids.nodeId);
@@ -10458,6 +10481,289 @@ static void UI_ConvertSelectedLoop(uint8_t convertPresets)
 
     UI_Draw();
 }
+
+/* -------------------------------------------------------------------------- */
+/* In-/Out-Menue: Merge to Loop                                               */
+/* -------------------------------------------------------------------------- */
+
+typedef enum
+{
+    UI_MERGE_OK = 0,
+    UI_MERGE_NOTHING,       /* Loop nicht umgewandelt */
+    UI_MERGE_NO_LEFT_IN,    /* ganz links bliebe kein Input */
+    UI_MERGE_NO_RIGHT_OUT   /* ganz rechts bliebe kein Output */
+
+} UI_MergeResult;
+
+/* Ergebnis der letzten Pruefung fuer die Fehlermeldung. */
+static UI_MergeResult uiMergeError = UI_MERGE_OK;
+
+
+/*
+ * Ids zum Return- bzw. Send-Item an itemIndex (siehe UI_CONVERT_ITEMS).
+ * Rueckgabe 0, wenn es keines ist.
+ */
+static uint8_t UI_MergeGetIds(
+    int16_t itemIndex,
+    UI_ConvertIds *ids)
+{
+    if (itemIndex < 0 ||
+        itemIndex >= (int16_t)UI_ITEM_COUNT)
+    {
+        return 0U;
+    }
+
+    uint16_t id = uiItems[itemIndex].id;
+    uint16_t loopNumber;
+
+    if (uiItems[itemIndex].type == UI_ITEM_INPUT &&
+        id > UI_CONVERT_RETURN_ID_BASE &&
+        id <= UI_CONVERT_RETURN_ID_BASE + UI_CONVERT_MAX_LOOPS)
+    {
+        loopNumber = (uint16_t)(id - UI_CONVERT_RETURN_ID_BASE - 1U);
+    }
+    else if (uiItems[itemIndex].type == UI_ITEM_OUTPUT &&
+             id > UI_CONVERT_SEND_ID_BASE &&
+             id <= UI_CONVERT_SEND_ID_BASE + UI_CONVERT_MAX_LOOPS)
+    {
+        loopNumber = (uint16_t)(id - UI_CONVERT_SEND_ID_BASE - 1U);
+    }
+    else
+    {
+        return 0U;
+    }
+
+    return UI_ConvertGetIds(
+        UI_LoopIndexByNumber((uint8_t)loopNumber),
+        ids);
+}
+
+
+static uint8_t UI_MenuItemIsMergeable(void)
+{
+    UI_ConvertIds ids;
+
+    if (uiMenuItemIndex < 0 ||
+        uiMenuItemIndex >= (int16_t)UI_ITEM_COUNT ||
+        uiItems[uiMenuItemIndex].order < 0 ||
+        !UI_MergeGetIds(uiMenuItemIndex, &ids))
+    {
+        return 0U;
+    }
+
+    return
+        (uiItems[UI_FindItemIndexById(ids.loopId)].order < 0) ?
+        1U :
+        0U;
+}
+
+
+/*
+ * Prueft im aktuellen Layout (uiItems), ob der Loop zusammengefuehrt
+ * werden kann: Ohne Return und Send muessen ganz links weiterhin nur und
+ * mindestens ein Input, ganz rechts nur und mindestens ein Output liegen.
+ * Aendert nichts.
+ */
+static UI_MergeResult UI_MergeCheck(const UI_ConvertIds *ids)
+{
+    int16_t loopIndex = UI_FindItemIndexById(ids->loopId);
+    int16_t returnIndex = UI_FindItemIndexById(ids->returnId);
+    int16_t sendIndex = UI_FindItemIndexById(ids->sendId);
+
+    if (loopIndex < 0 ||
+        returnIndex < 0 ||
+        sendIndex < 0 ||
+        uiItems[loopIndex].order >= 0 ||
+        (uiItems[returnIndex].order < 0 &&
+         uiItems[sendIndex].order < 0))
+    {
+        return UI_MERGE_NOTHING;
+    }
+
+    int16_t minimumOrder = 32767;
+    int16_t maximumOrder = -1;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if ((int16_t)i == returnIndex ||
+            (int16_t)i == sendIndex ||
+            !UI_IsPermanentItem(&uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order < minimumOrder)
+        {
+            minimumOrder = uiItems[i].order;
+        }
+
+        if (uiItems[i].order > maximumOrder)
+        {
+            maximumOrder = uiItems[i].order;
+        }
+    }
+
+    uint8_t leftOk = (maximumOrder > minimumOrder) ? 1U : 0U;
+    uint8_t rightOk = leftOk;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if ((int16_t)i == returnIndex ||
+            (int16_t)i == sendIndex ||
+            !UI_IsPermanentItem(&uiItems[i]))
+        {
+            continue;
+        }
+
+        if (uiItems[i].order == minimumOrder &&
+            uiItems[i].type != UI_ITEM_INPUT)
+        {
+            leftOk = 0U;
+        }
+
+        if (uiItems[i].order == maximumOrder &&
+            uiItems[i].type != UI_ITEM_OUTPUT)
+        {
+            rightOk = 0U;
+        }
+    }
+
+    if (!leftOk)
+    {
+        return UI_MERGE_NO_LEFT_IN;
+    }
+
+    if (!rightOk)
+    {
+        return UI_MERGE_NO_RIGHT_OUT;
+    }
+
+    return UI_MERGE_OK;
+}
+
+
+/*
+ * Fuehrt im aktuellen Layout (uiItems) Return und Send wieder zum Loop
+ * zusammen. Der Loop nimmt den Platz des manuellen Knotens "Lnn" ein,
+ * falls es ihn noch gibt. Sonst kommt er in die zweite Spalte von rechts
+ * (Lane 0); ist dort Lane 0 belegt oder gibt es nur die Randspalten,
+ * wird vor der Output-Spalte eine neue Spalte eingefuegt.
+ *
+ * Danach werden Auto-Nodes und Verbindungen neu berechnet. MIDI und
+ * Fokus bleiben unberuehrt. Bei einem anderen Ergebnis als UI_MERGE_OK
+ * bleibt das Layout unveraendert.
+ */
+static UI_MergeResult UI_MergeLoopItems(const UI_ConvertIds *ids)
+{
+    UI_MergeResult result = UI_MergeCheck(ids);
+
+    if (result != UI_MERGE_OK)
+    {
+        return result;
+    }
+
+    int16_t loopIndex = UI_FindItemIndexById(ids->loopId);
+    int16_t nodeIndex = UI_FindItemIndexById(ids->nodeId);
+    int16_t returnIndex = UI_FindItemIndexById(ids->returnId);
+    int16_t sendIndex = UI_FindItemIndexById(ids->sendId);
+
+    if (UI_GetMaximumPermanentOrder() + 1 >= UI_MAX_ORDER_COUNT)
+    {
+        return UI_MERGE_NOTHING;
+    }
+
+    uiItems[returnIndex].order = UI_INACTIVE_ORDER;
+    uiItems[returnIndex].lane = 0;
+    uiItems[returnIndex].focus = UI_FOCUS_NONE;
+
+    uiItems[sendIndex].order = UI_INACTIVE_ORDER;
+    uiItems[sendIndex].lane = 0;
+    uiItems[sendIndex].focus = UI_FOCUS_NONE;
+
+    UI_RemoveAllAutoNodes();
+    UI_NormalizeOrders();
+
+    if (nodeIndex >= 0 && uiItems[nodeIndex].order >= 0)
+    {
+        uiItems[loopIndex].order = uiItems[nodeIndex].order;
+        uiItems[loopIndex].lane = uiItems[nodeIndex].lane;
+
+        uiItems[nodeIndex].order = UI_INACTIVE_ORDER;
+        uiItems[nodeIndex].lane = 0;
+        uiItems[nodeIndex].focus = UI_FOCUS_NONE;
+    }
+    else
+    {
+        int16_t outputOrder = UI_GetMaximumPermanentOrder();
+        int16_t loopOrder = outputOrder - 1;
+
+        if (loopOrder <= UI_GetMinimumPermanentOrder() ||
+            UI_FindPermanentItemAt(loopOrder, 0, -1) >= 0)
+        {
+            UI_InsertOrderBefore(outputOrder, -1);
+            loopOrder = outputOrder;
+        }
+
+        uiItems[loopIndex].order = loopOrder;
+        uiItems[loopIndex].lane = 0;
+    }
+
+    uiItems[loopIndex].focus = UI_FOCUS_NONE;
+
+    UI_NormalizeOrders();
+    UI_EnsureEdgeColumns();
+
+    if (!UI_RebuildCalculatedConnections())
+    {
+        UI_ClearConnections();
+    }
+
+    return UI_MERGE_OK;
+}
+
+
+static uint8_t UI_MergeLoopItemsOk(const UI_ConvertIds *ids)
+{
+    return (UI_MergeLoopItems(ids) == UI_MERGE_OK) ? 1U : 0U;
+}
+
+
+/*
+ * "Merge to Loop" fuer das Return-/Send-Item im Menue. mergePresets = 1:
+ * alle gespeicherten Presets werden ebenfalls zurueckgebaut (Presets, in
+ * denen das nach der Randregel nicht geht, bleiben unveraendert), sonst
+ * nur das aktuelle Layout. Der Loop bleibt ausgeschaltet.
+ */
+static void UI_MergeSelectedItem(uint8_t mergePresets)
+{
+    UI_ConvertIds ids;
+
+    if (!UI_MenuItemIsMergeable() ||
+        !UI_MergeGetIds(uiMenuItemIndex, &ids))
+    {
+        return;
+    }
+
+    if (UI_MergeLoopItems(&ids) == UI_MERGE_OK)
+    {
+        grabStartStateValid = 0U;
+
+        if (mergePresets)
+        {
+            UI_ConvertPresets(&ids, 1U);
+        }
+
+        UI_MenuSetConfirmedItem(UI_FindItemIndexById(ids.loopId));
+    }
+
+    uiMenuPage = UI_MENU_PAGE_ROOT;
+    uiMenuControlMode =
+        UI_MENU_CONTROL_NAVIGATION;
+    uiMode = UI_MODE_STATE_VIEW;
+
+    UI_Draw();
+}
+
 
 static void UI_DrawMenu(void)
 {
@@ -10559,11 +10865,16 @@ static void UI_DrawMenu(void)
     }
 
     if (uiMenuPage ==
-        UI_MENU_PAGE_CONVERT_CONFIRM)
+            UI_MENU_PAGE_CONVERT_CONFIRM ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MERGE_CONFIRM)
     {
         UI_DrawMenuRow(
             UI_MENU_CONFIRM_TITLE_ROW,
-            "Convert presets too?"
+            (uiMenuPage ==
+             UI_MENU_PAGE_CONVERT_CONFIRM) ?
+            "Convert presets too?" :
+            "Merge presets too?"
         );
 
         UI_DrawMenuRow(
@@ -10575,6 +10886,26 @@ static void UI_DrawMenu(void)
             UI_MENU_CONVERT_NO_ROW,
             "No"
         );
+
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MERGE_ERROR)
+    {
+        uint8_t left =
+            (uiMergeError == UI_MERGE_NO_LEFT_IN) ?
+            1U :
+            0U;
+
+        UI_DrawMenuRow(0U, "Merge not possible:");
+        UI_DrawMenuRow(
+            1U,
+            left ? "Leftmost column" : "Rightmost column");
+        UI_DrawMenuRow(
+            2U,
+            left ? "needs an In" : "needs an Out");
+        UI_DrawMenuRow(UI_MENU_MERGE_ERROR_OK_ROW, "OK");
 
         return;
     }
@@ -10626,6 +10957,13 @@ static void UI_DrawMenu(void)
                 "Convert to In + Out"
             );
         }
+    }
+    else if (UI_MenuItemIsMergeable())
+    {
+        UI_DrawMenuRow(
+            UI_MENU_IO_MERGE_ROW,
+            "Merge to Loop"
+        );
     }
 }
 
@@ -10754,7 +11092,9 @@ static void UI_MenuHandleEncoderStep(
         return;
     }
 
-    if (direction == 0)
+    if (direction == 0 ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MERGE_ERROR)
     {
         return;
     }
@@ -10891,6 +11231,35 @@ static void UI_MenuHandleEnter(void)
         return;
     }
 
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MERGE_CONFIRM)
+    {
+        if (uiMenuSelectedRow ==
+                UI_MENU_CONVERT_YES_ROW ||
+            uiMenuSelectedRow ==
+                UI_MENU_CONVERT_NO_ROW)
+        {
+            UI_MergeSelectedItem(
+                (uiMenuSelectedRow ==
+                 UI_MENU_CONVERT_YES_ROW) ?
+                1U :
+                0U
+            );
+        }
+
+        return;
+    }
+
+    if (uiMenuPage ==
+        UI_MENU_PAGE_MERGE_ERROR)
+    {
+        uiMenuPage = UI_MENU_PAGE_ROOT;
+        uiMenuSelectedRow =
+            UI_MENU_IO_MERGE_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
     if (uiMenuControlMode ==
         UI_MENU_CONTROL_ITEM_SELECTION)
     {
@@ -10932,6 +11301,36 @@ static void UI_MenuHandleEnter(void)
         UI_MenuItemIsLoop())
     {
         UI_LmOpen();
+        return;
+    }
+
+    if (uiMenuSelectedRow ==
+            UI_MENU_IO_MERGE_ROW &&
+        UI_MenuItemIsMergeable())
+    {
+        UI_ConvertIds ids;
+
+        uiMergeError =
+            UI_MergeGetIds(uiMenuItemIndex, &ids) ?
+            UI_MergeCheck(&ids) :
+            UI_MERGE_NOTHING;
+
+        if (uiMergeError == UI_MERGE_OK)
+        {
+            uiMenuPage =
+                UI_MENU_PAGE_MERGE_CONFIRM;
+            uiMenuSelectedRow =
+                UI_MENU_CONVERT_NO_ROW;
+        }
+        else
+        {
+            uiMenuPage =
+                UI_MENU_PAGE_MERGE_ERROR;
+            uiMenuSelectedRow =
+                UI_MENU_MERGE_ERROR_OK_ROW;
+        }
+
+        UI_DrawMenu();
         return;
     }
 
@@ -11035,6 +11434,18 @@ static void UI_MenuHandleReturn(void)
         uiMenuPage = UI_MENU_PAGE_ROOT;
         uiMenuSelectedRow =
             UI_MENU_LOOP_CONVERT_ROW;
+        UI_DrawMenu();
+        return;
+    }
+
+    if (uiMenuPage ==
+            UI_MENU_PAGE_MERGE_CONFIRM ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MERGE_ERROR)
+    {
+        uiMenuPage = UI_MENU_PAGE_ROOT;
+        uiMenuSelectedRow =
+            UI_MENU_IO_MERGE_ROW;
         UI_DrawMenu();
         return;
     }
