@@ -4003,10 +4003,9 @@ static void UI_EnsureEdgeColumns(void)
     /*
      * Ungültige linke Randspalte:
      *
-     * Alle Nicht-Inputs werden um eine Spalte
-     * nach rechts verschoben.
-     *
-     * Inputs bleiben in order 0.
+     * Alle Items werden um eine Spalte nach rechts
+     * verschoben, ausser den Inputs in der linken
+     * Randspalte. Inputs weiter innen wandern mit.
      */
     if (invalidLeftEdge)
     {
@@ -4022,24 +4021,31 @@ static void UI_EnsureEdgeColumns(void)
 
 
             if (uiItems[i].type ==
-                UI_ITEM_INPUT)
+                    UI_ITEM_INPUT &&
+                uiItems[i].order ==
+                    minimumOrder)
             {
-                uiItems[i].order = 0;
+                continue;
             }
-            else
-            {
-                uiItems[i].order++;
-            }
+
+            uiItems[i].order++;
         }
     }
 
 
     /*
-     * Nach einer möglichen linken Erweiterung
-     * die äußerste Nicht-Output-Spalte neu bestimmen.
+     * Ungültige rechte Randspalte:
+     *
+     * Die Outputs der rechten Randspalte wandern
+     * rechts neben die äußerste Nicht-Output-Spalte
+     * (nach einer möglichen linken Erweiterung neu
+     * bestimmt). Outputs weiter innen bleiben.
      */
     if (invalidRightEdge)
     {
+        int16_t edgeOutputOrder =
+            UI_GetMaximumPermanentOrder();
+
         int16_t maximumNonOutputOrder = -1;
 
 
@@ -4086,7 +4092,9 @@ static void UI_EnsureEdgeColumns(void)
                  */
                 if (UI_IsPermanentItem(&uiItems[i]) &&
                     uiItems[i].type ==
-                        UI_ITEM_OUTPUT)
+                        UI_ITEM_OUTPUT &&
+                    uiItems[i].order ==
+                        edgeOutputOrder)
                 {
                     uiItems[i].order =
                         newOutputOrder;
@@ -11581,29 +11589,35 @@ static void UI_MoveGrabbedHorizontal(
 
 
     /*
-     * Inputs und Outputs selbst bleiben vorerst
-     * fest in ihren Randspalten.
-     */
-    
-    /*
-     * Ein Input darf nicht weiter nach links bewegt
-     * werden, weil er bereits die linke Randseite bildet.
+     * Ein Input in der linken Randspalte darf nicht
+     * weiter nach links bewegt werden, ein Output in
+     * der rechten Randspalte nicht weiter nach rechts.
      *
-     * Ein Output darf nicht weiter nach rechts bewegt
-     * werden, weil er bereits die rechte Randseite bildet.
-     *
-     * Bewegung nach innen bleibt erlaubt und wird später
-     * durch die vollständigen Randregeln validiert.
+     * Sonst duerfen Inputs und Outputs frei bewegt
+     * werden. Die Randregeln (ganz links nur und
+     * mindestens ein Input, ganz rechts nur und
+     * mindestens ein Output) werden anschliessend
+     * geprueft.
      */
+    uint8_t grabbedIsIo =
+        (grabbedItem->type == UI_ITEM_INPUT ||
+         grabbedItem->type == UI_ITEM_OUTPUT) ?
+        1U :
+        0U;
+
     if (grabbedItem->type == UI_ITEM_INPUT &&
-        direction < 0)
+        direction < 0 &&
+        grabbedItem->order ==
+            UI_GetMinimumPermanentOrder())
     {
         return;
     }
     
     
     if (grabbedItem->type == UI_ITEM_OUTPUT &&
-        direction > 0)
+        direction > 0 &&
+        grabbedItem->order ==
+            UI_GetMaximumPermanentOrder())
     {
         return;
     }
@@ -11644,35 +11658,7 @@ static void UI_MoveGrabbedHorizontal(
 
 
     /*
-     * Inputs und Outputs dürfen in dieser ersten
-     * Implementierung nur auf eine leere Position oder
-     * auf die Position eines automatischen Knotens
-     * bewegt werden.
-     *
-     * Ein direkter Tausch mit einem anderen permanenten
-     * Item wird vorerst verhindert.
-     */
-    if ((grabbedItem->type == UI_ITEM_INPUT ||
-     grabbedItem->type == UI_ITEM_OUTPUT) &&
-    targetPermanentIndex >= 0)
-{
-    /*
-     * Die Verschiebung ist blockiert.
-     *
-     * Falls sich das Item am sichtbaren Rand
-     * befindet, versuchen wir stattdessen einen
-     * zusätzlichen Viewport-Schritt.
-     */
-    UI_TryBlockedEdgeScroll(
-        grabbedIndex,
-        direction
-    );
-
-    return;
-}
-    
-    /*
-     * Ziel ist ein normales permanentes Item.
+     * Ziel ist ein permanentes Item.
      */
     if (targetPermanentIndex >= 0)
     {
@@ -11681,13 +11667,23 @@ static void UI_MoveGrabbedHorizontal(
                 targetPermanentIndex
             ].type;
 
+        int16_t targetOrderOfItem =
+            uiItems[
+                targetPermanentIndex
+            ].order;
 
-        if ((targetType ==
-                 UI_ITEM_INPUT &&
-             direction < 0) ||
-            (targetType ==
-                 UI_ITEM_OUTPUT &&
-             direction > 0))
+
+        if (!grabbedIsIo &&
+            ((targetType ==
+                  UI_ITEM_INPUT &&
+              direction < 0 &&
+              targetOrderOfItem ==
+                  UI_GetMinimumPermanentOrder()) ||
+             (targetType ==
+                  UI_ITEM_OUTPUT &&
+              direction > 0 &&
+              targetOrderOfItem ==
+                  UI_GetMaximumPermanentOrder())))
         {
             /*
              * Das gegriffene Item betritt die
@@ -11741,6 +11737,61 @@ static void UI_MoveGrabbedHorizontal(
 
             grabbedItem->lane =
                 targetOldLane;
+
+
+            /*
+             * Ein Input oder Output darf nur tauschen,
+             * wenn danach ganz links weiterhin nur
+             * Inputs und ganz rechts nur Outputs liegen.
+             *
+             * Sonst bekommt er eine eigene neue Spalte
+             * zwischen seiner bisherigen Spalte und der
+             * Zielspalte.
+             */
+            if (grabbedIsIo &&
+                !UI_ValidateEdgeRules())
+            {
+                uiItems[
+                    targetPermanentIndex
+                ].order =
+                    targetOldOrder;
+
+                uiItems[
+                    targetPermanentIndex
+                ].lane =
+                    targetOldLane;
+
+                grabbedItem->order =
+                    grabbedOldOrder;
+
+                grabbedItem->lane =
+                    grabbedOldLane;
+
+
+                if (UI_GetMaximumPermanentOrder() + 1 >=
+                    UI_MAX_ORDER_COUNT)
+                {
+                    return;
+                }
+
+                if (direction > 0)
+                {
+                    UI_InsertOrderBefore(
+                        targetOrder,
+                        grabbedIndex
+                    );
+
+                    grabbedItem->order =
+                        targetOrder;
+                }
+                else
+                {
+                    UI_InsertOrderBefore(
+                        grabbedOldOrder,
+                        grabbedIndex
+                    );
+                }
+            }
         }
     }
     else
