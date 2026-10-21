@@ -94,6 +94,15 @@
 /* Abfrage "Convert presets too?" (Loop-Menue, Convert to In + Out). */
 #define UI_MENU_CONVERT_YES_ROW      1U
 #define UI_MENU_CONVERT_NO_ROW       2U
+#define UI_MENU_CONVERT_SELECT_ROW   3U
+
+/*
+ * Welche Presets "Convert to In + Out" bzw. "Merge to Loop" mit
+ * umbaut: keine (No), alle (Yes) oder die unter "Select" markierten.
+ */
+#define UI_PRESETS_NONE              0U
+#define UI_PRESETS_ALL               1U
+#define UI_PRESETS_SELECTED          2U
 
 /* In-/Out-Menue: "Merge to Loop" (nur Return/Send umgewandelter Loops). */
 #define UI_MENU_IO_MERGE_ROW         2U
@@ -647,6 +656,8 @@ static uint8_t UI_MenuItemIsConvertible(void);
 static uint8_t UI_MenuItemIsMergeable(void);
 static void UI_MenuSavePreset(void);
 static void UI_MenuManagePresets(void);
+static void UI_ConvertSelectedLoop(uint8_t presetMode);
+static void UI_MergeSelectedItem(uint8_t presetMode);
 static void UI_DeleteSelectedManualNode(void);
 
 /*
@@ -795,7 +806,8 @@ typedef enum
     UI_MENU_PAGE_CONVERT_CONFIRM,
     UI_MENU_PAGE_MERGE_CONFIRM,
     UI_MENU_PAGE_MERGE_ERROR,
-    UI_MENU_PAGE_MERGE_REPORT
+    UI_MENU_PAGE_MERGE_REPORT,
+    UI_MENU_PAGE_PRESET_SELECT
 
 } UI_MenuPage;
 
@@ -871,6 +883,15 @@ static uint8_t uiPresetBankEditing = 0U;
 static uint8_t uiPresetScrollTop = 0U;
 
 static UI_SaveStatus uiSaveStatus = UI_SAVE_STATUS_NONE;
+
+/*
+ * Seite PRESET_SELECT ("Select" bei "Convert presets too?" bzw. "Merge
+ * presets too?"): markierte Presets, Bit n von uiPresetSelection[bank] =
+ * Preset n. Die Bank vor dem Oeffnen wird beim Verlassen wieder gewaehlt.
+ */
+static uint32_t uiPresetSelection[PRESET_BANK_COUNT];
+static uint8_t uiPresetSelectMerge = 0U;
+static uint8_t uiPresetSelectBankBackup = 0U;
 
 
 /* -------------------------------------------------------------------------- */
@@ -4622,7 +4643,18 @@ static uint8_t UI_SaveAppendUInt2(
 /* Die Manage-Seite hat zusaetzlich die Zeile "Rename bank" ganz oben. */
 static uint8_t UI_ListIsManage(void)
 {
-    return (uiMenuPage == UI_MENU_PAGE_MANAGE_PRESETS) ? 1U : 0U;
+    return (uiMenuPage == UI_MENU_PAGE_MANAGE_PRESETS ||
+            uiMenuPage == UI_MENU_PAGE_PRESET_SELECT) ? 1U : 0U;
+}
+
+
+/*
+ * Die Auswahl-Seite (PRESET_SELECT) sieht aus wie Manage Presets, oben
+ * steht "Confirm" statt "Rename bank".
+ */
+static uint8_t UI_ListIsSelect(void)
+{
+    return (uiMenuPage == UI_MENU_PAGE_PRESET_SELECT) ? 1U : 0U;
 }
 
 
@@ -4633,10 +4665,85 @@ static uint8_t UI_ListBankRow(void)
 }
 
 
+/*
+ * Auswahl-Seite: Sie zeigt nur belegte Presets. index = Position in der
+ * Liste (0 = erstes belegtes Preset der Bank). Rueckgabe: Preset-Nummer
+ * (0 bis 23) bzw. -1, wenn es so viele belegte Presets nicht gibt.
+ */
+static int16_t UI_SelectSlotOfIndex(
+    uint8_t bank,
+    uint8_t index)
+{
+    char name[PRESET_NAME_LENGTH];
+
+    for (uint8_t slot = 0U; slot < PRESET_SLOTS_PER_BANK; slot++)
+    {
+        if (!PresetStore_GetSlotName(bank, slot, name))
+        {
+            continue;
+        }
+
+        if (index == 0U)
+        {
+            return (int16_t)slot;
+        }
+
+        index--;
+    }
+
+    return -1;
+}
+
+
+static uint8_t UI_SelectUsedCount(uint8_t bank)
+{
+    char name[PRESET_NAME_LENGTH];
+    uint8_t count = 0U;
+
+    for (uint8_t slot = 0U; slot < PRESET_SLOTS_PER_BANK; slot++)
+    {
+        if (PresetStore_GetSlotName(bank, slot, name))
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+
+/* Anzahl der Preset-Zeilen (Auswahl-Seite: nur belegte Presets). */
+static uint8_t UI_ListPresetCount(void)
+{
+    return UI_ListIsSelect() ?
+           UI_SelectUsedCount(uiPresetBank) :
+           (uint8_t)PRESET_SLOTS_PER_BANK;
+}
+
+
+/* Preset-Nummer (0 bis 23) einer Preset-Zeile, -1 = keine. */
+static int16_t UI_ListSlotOfRow(uint8_t row)
+{
+    int16_t index = (int16_t)row - (int16_t)UI_ListBankRow() - 1;
+
+    if (index < 0)
+    {
+        return -1;
+    }
+
+    if (UI_ListIsSelect())
+    {
+        return UI_SelectSlotOfIndex(uiPresetBank, (uint8_t)index);
+    }
+
+    return (index < (int16_t)PRESET_SLOTS_PER_BANK) ? index : -1;
+}
+
+
 /* Zeilennummer der letzten Preset-Zeile. */
 static int16_t UI_ListLastRow(void)
 {
-    return (int16_t)(UI_ListBankRow() + PRESET_SLOTS_PER_BANK);
+    return (int16_t)(UI_ListBankRow() + UI_ListPresetCount());
 }
 
 
@@ -4681,7 +4788,10 @@ static void UI_SaveBuildRowText(
     if (UI_ListIsManage() && row == 0U)
     {
         UI_SaveAppendText(
-            text, 0U, UI_SAVE_TEXT_CAPACITY, "Rename bank");
+            text,
+            0U,
+            UI_SAVE_TEXT_CAPACITY,
+            UI_ListIsSelect() ? "Confirm" : "Rename bank");
 
         return;
     }
@@ -4702,11 +4812,36 @@ static void UI_SaveBuildRowText(
         return;
     }
 
-    uint8_t number = (uint8_t)(row - bankRow);
+    int16_t slotOfRow = UI_ListSlotOfRow(row);
+
+    if (slotOfRow < 0)
+    {
+        /* Auswahl-Seite: leere Zeile unter dem letzten Preset. */
+        return;
+    }
+
+    uint8_t number = (uint8_t)(slotOfRow + 1);
     char presetName[PRESET_NAME_LENGTH];
 
     uint8_t used = PresetStore_GetSlotName(
         uiPresetBank, (uint8_t)(number - 1U), presetName);
+
+    /*
+     * Auswahl-Seite: Haken vor markierten Presets.
+     */
+    if (UI_ListIsSelect())
+    {
+        static const char checked[] = { FONT5X7_CHAR_CHECK, ' ', '\0' };
+
+        position = UI_SaveAppendText(
+            text,
+            position,
+            UI_SAVE_TEXT_CAPACITY,
+            ((uiPresetSelection[uiPresetBank] &
+              (1UL << (number - 1U))) != 0UL) ?
+            checked :
+            "  ");
+    }
 
     position = UI_SaveAppendUInt2(
         text, position, UI_SAVE_TEXT_CAPACITY, number);
@@ -4923,14 +5058,23 @@ static void UI_SaveDrawScrollbar(void)
     uint16_t trackHeight =
         (uint16_t)(visible * UI_SAVE_ROW_HEIGHT);
 
+    /*
+     * Auswahl-Seite: nur belegte Presets, bei wenigen fuellt der
+     * Schieber die ganze Leiste.
+     */
+    uint16_t total = UI_ListPresetCount();
+
+    if (total < visible)
+    {
+        total = visible;
+    }
+
     uint16_t thumbHeight =
-        (uint16_t)((trackHeight * visible) /
-                   PRESET_SLOTS_PER_BANK);
+        (uint16_t)((trackHeight * visible) / total);
 
     uint16_t thumbY =
         (uint16_t)(UI_ListFirstY() +
-            (((uint32_t)trackHeight * uiPresetScrollTop) /
-             PRESET_SLOTS_PER_BANK));
+            (((uint32_t)trackHeight * uiPresetScrollTop) / total));
 
     ST7735_FillRect(
         UI_SAVE_SCROLLBAR_X,
@@ -5059,6 +5203,31 @@ static void UI_SaveDrawStatus(void)
 
         case UI_SAVE_STATUS_NONE:
         default:
+            if (UI_ListIsSelect())
+            {
+                uint8_t selected = 0U;
+
+                for (uint8_t bank = 0U; bank < PRESET_BANK_COUNT; bank++)
+                {
+                    for (uint8_t slot = 0U;
+                         slot < PRESET_SLOTS_PER_BANK;
+                         slot++)
+                    {
+                        if ((uiPresetSelection[bank] &
+                             (1UL << slot)) != 0UL)
+                        {
+                            selected++;
+                        }
+                    }
+                }
+
+                position = UI_SaveAppendText(
+                    text, 0U, UI_SAVE_TEXT_CAPACITY, "Selected ");
+                UI_SaveAppendUInt(
+                    text, position, UI_SAVE_TEXT_CAPACITY, selected);
+                break;
+            }
+
             position = UI_SaveAppendText(
                 text, 0U, UI_SAVE_TEXT_CAPACITY, "Used ");
             UI_SaveAppendUsedCount(text, position);
@@ -5795,8 +5964,32 @@ static uint8_t UI_PresetMatchesCurrent(
         return 0U;
     }
 
+    /*
+     * Loops, die nicht im Layout sind (z.B. umgewandelt per "Convert to
+     * In + Out"), zaehlen nicht: ihr gespeicherter Status bleibt fuer ein
+     * spaeteres Zusammenfuehren erhalten.
+     */
+    uint32_t inactiveLoops = 0UL;
+    uint8_t loopNumber = 0U;
+
+    for (uint16_t i = 0U; i < UI_ITEM_COUNT; i++)
+    {
+        if (uiItems[i].type != UI_ITEM_LOOP)
+        {
+            continue;
+        }
+
+        if (loopNumber < PRESET_LOOP_STATUS_MAX_LOOPS &&
+            uiItems[i].order < 0)
+        {
+            inactiveLoops |= (1UL << loopNumber);
+        }
+
+        loopNumber++;
+    }
+
     if ((storedLoopStatus & PRESET_LOOP_STATUS_VALID) != 0UL &&
-        storedLoopStatus != UI_LoopStatusBits())
+        (storedLoopStatus & ~inactiveLoops) != UI_LoopStatusBits())
     {
         return 0U;
     }
@@ -8273,16 +8466,36 @@ static void UI_SaveHandleEncoder(int8_t direction)
      */
     if (uiPresetBankEditing)
     {
-        if (direction > 0)
+        /*
+         * Auswahl-Seite: leere Baenke werden uebersprungen (gibt es
+         * keine belegte, bleibt die Bank).
+         */
+        uint8_t bank = uiPresetBank;
+
+        for (uint8_t tries = 0U; tries < PRESET_BANK_COUNT; tries++)
         {
-            uiPresetBank = (uint8_t)
-                ((uiPresetBank + 1U) % PRESET_BANK_COUNT);
+            if (direction > 0)
+            {
+                bank = (uint8_t)((bank + 1U) % PRESET_BANK_COUNT);
+            }
+            else
+            {
+                bank = (uint8_t)
+                    ((bank + PRESET_BANK_COUNT - 1U) %
+                     PRESET_BANK_COUNT);
+            }
+
+            if (!UI_ListIsSelect() ||
+                UI_SelectUsedCount(bank) > 0U)
+            {
+                uiPresetBank = bank;
+                break;
+            }
         }
-        else
+
+        if (UI_ListIsSelect())
         {
-            uiPresetBank = (uint8_t)
-                ((uiPresetBank + PRESET_BANK_COUNT - 1U) %
-                 PRESET_BANK_COUNT);
+            uiPresetScrollTop = 0U;
         }
 
         uiSaveStatus = UI_SAVE_STATUS_NONE;
@@ -8341,6 +8554,26 @@ static void UI_SaveHandleEnter(void)
     uint8_t manage = UI_ListIsManage();
     uint8_t bankRow = UI_ListBankRow();
 
+    if (UI_ListIsSelect() && uiMenuSelectedRow == 0)
+    {
+        /*
+         * "Confirm": nur die markierten Presets mit umbauen.
+         */
+        uiPresetBank = uiPresetSelectBankBackup;
+        uiPresetBankEditing = 0U;
+
+        if (uiPresetSelectMerge)
+        {
+            UI_MergeSelectedItem(UI_PRESETS_SELECTED);
+        }
+        else
+        {
+            UI_ConvertSelectedLoop(UI_PRESETS_SELECTED);
+        }
+
+        return;
+    }
+
     if (manage && uiMenuSelectedRow == 0)
     {
         /*
@@ -8375,7 +8608,26 @@ static void UI_SaveHandleEnter(void)
         return;
     }
 
-    uint8_t slot = (uint8_t)(uiMenuSelectedRow - bankRow - 1);
+    int16_t slotOfRow = UI_ListSlotOfRow((uint8_t)uiMenuSelectedRow);
+
+    if (slotOfRow < 0)
+    {
+        return;
+    }
+
+    uint8_t slot = (uint8_t)slotOfRow;
+
+    if (UI_ListIsSelect())
+    {
+        /*
+         * Auswahl-Seite: Haken setzen bzw. entfernen.
+         */
+        uiPresetSelection[uiPresetBank] ^= (1UL << slot);
+        uiSaveStatus = UI_SAVE_STATUS_NONE;
+        UI_SaveDrawRow((uint8_t)uiMenuSelectedRow);
+        UI_SaveDrawStatus();
+        return;
+    }
 
     if (!manage)
     {
@@ -8418,6 +8670,23 @@ static void UI_SaveHandleReturn(void)
 
         UI_SaveDrawRow(UI_ListBankRow());
         UI_SaveDrawList();
+        return;
+    }
+
+    /*
+     * Auswahl-Seite: zurueck zur Abfrage "... presets too?" (Zeile
+     * "Select"), ohne etwas umzubauen.
+     */
+    if (UI_ListIsSelect())
+    {
+        uiPresetBank = uiPresetSelectBankBackup;
+        uiMenuPage = uiPresetSelectMerge ?
+            UI_MENU_PAGE_MERGE_CONFIRM :
+            UI_MENU_PAGE_CONVERT_CONFIRM;
+        uiMenuSelectedRow = UI_MENU_CONVERT_SELECT_ROW;
+
+        UI_Draw();
+        UI_DrawMenu();
         return;
     }
 
@@ -8471,6 +8740,43 @@ static void UI_MenuManagePresets(void)
     uiPresetScrollTop = 0U;
 
     uiMenuPage = UI_MENU_PAGE_MANAGE_PRESETS;
+    uiMenuSelectedRow = 1;
+
+    UI_DrawMenu();
+}
+
+
+/*
+ * "Select" bei "Convert presets too?" (merge = 0) bzw. "Merge presets
+ * too?" (merge = 1): Auswahl-Seite mit leerer Auswahl oeffnen.
+ */
+static void UI_PresetSelectOpen(uint8_t merge)
+{
+    memset(uiPresetSelection, 0, sizeof(uiPresetSelection));
+
+    uiPresetSelectMerge = merge;
+    uiPresetSelectBankBackup = uiPresetBank;
+    uiPresetBankEditing = 0U;
+
+    /*
+     * Leere Baenke werden nicht gezeigt: ab der aktuellen Bank die
+     * erste mit belegten Presets waehlen.
+     */
+    for (uint8_t tries = 0U; tries < PRESET_BANK_COUNT; tries++)
+    {
+        uint8_t bank = (uint8_t)
+            ((uiPresetSelectBankBackup + tries) % PRESET_BANK_COUNT);
+
+        if (UI_SelectUsedCount(bank) > 0U)
+        {
+            uiPresetBank = bank;
+            break;
+        }
+    }
+    uiSaveStatus = UI_SAVE_STATUS_NONE;
+    uiPresetScrollTop = 0U;
+
+    uiMenuPage = UI_MENU_PAGE_PRESET_SELECT;
     uiMenuSelectedRow = 1;
 
     UI_DrawMenu();
@@ -9988,17 +10294,17 @@ static uint8_t UI_MenuItemIsManualNode(void)
 static uint8_t UI_MenuGetRowCount(void)
 {
     if (uiMenuPage ==
-            UI_MENU_PAGE_DELETE_CONFIRM ||
-        uiMenuPage ==
-            UI_MENU_PAGE_CONVERT_CONFIRM ||
-        uiMenuPage ==
-            UI_MENU_PAGE_MERGE_CONFIRM)
+        UI_MENU_PAGE_DELETE_CONFIRM)
     {
         return 3U;
     }
 
     if (uiMenuPage ==
-        UI_MENU_PAGE_MERGE_ERROR)
+            UI_MENU_PAGE_CONVERT_CONFIRM ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MERGE_CONFIRM ||
+        uiMenuPage ==
+            UI_MENU_PAGE_MERGE_ERROR)
     {
         return 4U;
     }
@@ -10340,14 +10646,15 @@ static uint8_t UI_ConvertSetPositions(
 /*
  * Baut alle gespeicherten Presets entsprechend um (Antwort "Yes" auf
  * "Convert presets too?", mit merge = 1 auf "Merge presets too?", dann
- * mit UI_MergeLoopItems statt UI_ConvertLoopItems). Jedes Layout wird dafuer kurz in uiItems
+ * mit UI_MergeLoopItems statt UI_ConvertLoopItems). Mit selection
+ * (Bitmaske je Bank, siehe uiPresetSelection) nur die markierten. Jedes Layout wird dafuer kurz in uiItems
  * hergestellt, umgewandelt, neu berechnet und wieder serialisiert, damit
  * es genau dem entspricht, was beim Laden entsteht (Rueckkopplungsschutz
  * in UI_PresetMatchesCurrent). Danach wird das aktuelle Layout
  * wiederhergestellt.
  *
- * Der Loop faellt aus Loop-Status und On/Bypass-Zustand heraus, Name,
- * Programme und zusaetzliche MIDI-Meldungen bleiben. Presets, in denen
+ * Name, Loop-Status, Programme, On/Bypass-Zustaende und zusaetzliche
+ * MIDI-Meldungen bleiben. Presets, in denen
  * der Loop schon umgewandelt ist, bleiben unveraendert.
  */
 typedef enum
@@ -10376,7 +10683,8 @@ static UI_MergeResult UI_MergeLoopItems(const UI_ConvertIds *ids);
 
 static void UI_ConvertPresets(
     const UI_ConvertIds *ids,
-    uint8_t merge)
+    uint8_t merge,
+    const uint32_t *selection)
 {
     int16_t savedOrder[UI_ITEM_COUNT];
     int16_t savedLane[UI_ITEM_COUNT];
@@ -10403,6 +10711,15 @@ static void UI_ConvertPresets(
             uint32_t loopStatus = 0UL;
             uint8_t programs[PRESET_LOOP_PROGRAM_BYTES];
             PresetLoopStates states;
+
+            /*
+             * selection != NULL: nur die markierten Presets.
+             */
+            if (selection != NULL &&
+                (selection[bank] & (1UL << slot)) == 0UL)
+            {
+                continue;
+            }
 
             if (!PresetStore_GetSlotName(bank, slot, name) ||
                 PresetStore_ReadLayout(bank, slot, layout, &length) !=
@@ -10451,10 +10768,14 @@ static void UI_ConvertPresets(
                 continue;
             }
 
-            loopStatus &= ~(1UL << ids->loopNumber);
-            states.mask &= ~(1UL << ids->loopNumber);
-            states.state[ids->loopNumber] = 0UL;
-
+            /*
+             * Loop-Status und On/Bypass-Zustand des Loops bleiben
+             * gespeichert: Waehrend der Loop umgewandelt ist, werden sie
+             * beim Laden nicht verwendet (Loop nicht im Layout), nach
+             * "Merge presets too?" schaltet das Preset ihn wieder wie
+             * vorher. Ein Preset, das mit umgewandeltem Loop gespeichert
+             * wurde, hat ihn als aus gespeichert.
+             */
             (void)PresetStore_SavePreset(
                 bank,
                 slot,
@@ -10481,12 +10802,12 @@ static void UI_ConvertPresets(
 /*
  * "Convert to In + Out" fuer den Loop im Menue. Der Loop wird wie beim
  * Laden eines Presets ohne ihn ausgeschaltet (Off an das Effektgeraet),
- * danach umgewandelt. convertPresets = 1: alle gespeicherten Presets
- * werden ebenfalls umgebaut, sonst nur das aktuelle Layout (und damit
- * kuenftig gespeicherte Presets). Alte Presets bringen beim Laden den
+ * danach umgewandelt. presetMode (UI_PRESETS_*): keine, alle oder die
+ * markierten gespeicherten Presets werden ebenfalls umgebaut, sonst nur
+ * das aktuelle Layout (und damit kuenftig gespeicherte Presets). Alte Presets bringen beim Laden den
  * Loop zurueck.
  */
-static void UI_ConvertSelectedLoop(uint8_t convertPresets)
+static void UI_ConvertSelectedLoop(uint8_t presetMode)
 {
     UI_ConvertIds ids;
 
@@ -10504,9 +10825,14 @@ static void UI_ConvertSelectedLoop(uint8_t convertPresets)
 
         grabStartStateValid = 0U;
 
-        if (convertPresets)
+        if (presetMode != UI_PRESETS_NONE)
         {
-            UI_ConvertPresets(&ids, 0U);
+            UI_ConvertPresets(
+                &ids,
+                0U,
+                (presetMode == UI_PRESETS_SELECTED) ?
+                uiPresetSelection :
+                NULL);
         }
 
         int16_t nodeIndex = UI_FindItemIndexById(ids.nodeId);
@@ -10895,13 +11221,14 @@ static void UI_MergeReportHandleEncoder(int8_t direction)
 
 
 /*
- * "Merge to Loop" fuer das Return-/Send-Item im Menue. mergePresets = 1:
- * alle gespeicherten Presets werden ebenfalls zurueckgebaut. Presets, in
+ * "Merge to Loop" fuer das Return-/Send-Item im Menue. presetMode
+ * (UI_PRESETS_*): keine, alle oder die markierten gespeicherten Presets
+ * werden ebenfalls zurueckgebaut. Presets, in
  * denen das nach der Randregel nicht geht, bleiben unveraendert und
  * werden danach auf der Seite MERGE_REPORT aufgelistet. Sonst nur das
  * aktuelle Layout. Der Loop bleibt ausgeschaltet.
  */
-static void UI_MergeSelectedItem(uint8_t mergePresets)
+static void UI_MergeSelectedItem(uint8_t presetMode)
 {
     UI_ConvertIds ids;
 
@@ -10917,9 +11244,14 @@ static void UI_MergeSelectedItem(uint8_t mergePresets)
 
         UI_MenuSetConfirmedItem(UI_FindItemIndexById(ids.loopId));
 
-        if (mergePresets)
+        if (presetMode != UI_PRESETS_NONE)
         {
-            UI_ConvertPresets(&ids, 1U);
+            UI_ConvertPresets(
+                &ids,
+                1U,
+                (presetMode == UI_PRESETS_SELECTED) ?
+                uiPresetSelection :
+                NULL);
 
             /*
              * Presets, die wegen der Randregel nicht zurueckgebaut
@@ -10950,7 +11282,9 @@ static void UI_DrawMenu(void)
     if (uiMenuPage ==
             UI_MENU_PAGE_SAVE_PRESET ||
         uiMenuPage ==
-            UI_MENU_PAGE_MANAGE_PRESETS)
+            UI_MENU_PAGE_MANAGE_PRESETS ||
+        uiMenuPage ==
+            UI_MENU_PAGE_PRESET_SELECT)
     {
         UI_SaveDrawPage();
         return;
@@ -11071,6 +11405,11 @@ static void UI_DrawMenu(void)
         UI_DrawMenuRow(
             UI_MENU_CONVERT_NO_ROW,
             "No"
+        );
+
+        UI_DrawMenuRow(
+            UI_MENU_CONVERT_SELECT_ROW,
+            "Select"
         );
 
         return;
@@ -11229,6 +11568,15 @@ static void UI_CloseMenu(
         (void)UI_PmFinish();
     }
 
+    /*
+     * Auswahl-Seite: Menue-Taste bricht ab, nichts wird umgebaut.
+     */
+    if (uiMenuPage == UI_MENU_PAGE_PRESET_SELECT)
+    {
+        uiPresetBank = uiPresetSelectBankBackup;
+        uiPresetBankEditing = 0U;
+    }
+
     uiMenuControlMode =
         UI_MENU_CONTROL_NAVIGATION;
     uiMenuPage = UI_MENU_PAGE_ROOT;
@@ -11245,7 +11593,9 @@ static void UI_MenuHandleEncoderStep(
     if (uiMenuPage ==
             UI_MENU_PAGE_SAVE_PRESET ||
         uiMenuPage ==
-            UI_MENU_PAGE_MANAGE_PRESETS)
+            UI_MENU_PAGE_MANAGE_PRESETS ||
+        uiMenuPage ==
+            UI_MENU_PAGE_PRESET_SELECT)
     {
         UI_SaveHandleEncoder(direction);
         return;
@@ -11339,7 +11689,9 @@ static void UI_MenuHandleEnter(void)
     if (uiMenuPage ==
             UI_MENU_PAGE_SAVE_PRESET ||
         uiMenuPage ==
-            UI_MENU_PAGE_MANAGE_PRESETS)
+            UI_MENU_PAGE_MANAGE_PRESETS ||
+        uiMenuPage ==
+            UI_MENU_PAGE_PRESET_SELECT)
     {
         UI_SaveHandleEnter();
         return;
@@ -11420,9 +11772,14 @@ static void UI_MenuHandleEnter(void)
             UI_ConvertSelectedLoop(
                 (uiMenuSelectedRow ==
                  UI_MENU_CONVERT_YES_ROW) ?
-                1U :
-                0U
+                UI_PRESETS_ALL :
+                UI_PRESETS_NONE
             );
+        }
+        else if (uiMenuSelectedRow ==
+                 UI_MENU_CONVERT_SELECT_ROW)
+        {
+            UI_PresetSelectOpen(0U);
         }
 
         /* Titelzeile: nichts tun. */
@@ -11440,9 +11797,14 @@ static void UI_MenuHandleEnter(void)
             UI_MergeSelectedItem(
                 (uiMenuSelectedRow ==
                  UI_MENU_CONVERT_YES_ROW) ?
-                1U :
-                0U
+                UI_PRESETS_ALL :
+                UI_PRESETS_NONE
             );
+        }
+        else if (uiMenuSelectedRow ==
+                 UI_MENU_CONVERT_SELECT_ROW)
+        {
+            UI_PresetSelectOpen(1U);
         }
 
         return;
@@ -11573,7 +11935,9 @@ static void UI_MenuHandleReturn(void)
     if (uiMenuPage ==
             UI_MENU_PAGE_SAVE_PRESET ||
         uiMenuPage ==
-            UI_MENU_PAGE_MANAGE_PRESETS)
+            UI_MENU_PAGE_MANAGE_PRESETS ||
+        uiMenuPage ==
+            UI_MENU_PAGE_PRESET_SELECT)
     {
         UI_SaveHandleReturn();
         return;

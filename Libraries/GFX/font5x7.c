@@ -71,7 +71,7 @@ static const uint8_t Font5x7_Numbers[10][5] =
  *
  * ?  -  _  :  /  (  )  #  ,
  */
-static const uint8_t Font5x7_Symbols[10][5] =
+static const uint8_t Font5x7_Symbols[11][5] =
 {
     /* ? */ {0x03, 0x01, 0x11, 0x0E, 0x04},
     /* - */ {0x08, 0x08, 0x08, 0x08, 0x08},
@@ -82,7 +82,8 @@ static const uint8_t Font5x7_Symbols[10][5] =
     /* ) */ {0x00, 0x00, 0x11, 0x11, 0x0E},
     /* # */ {0x0A, 0x1F, 0x0A, 0x1F, 0x0A},
     /* , */ {0x00, 0x50, 0x30, 0x00, 0x00},
-    /* + */ {0x08, 0x08, 0x3E, 0x08, 0x08}
+    /* + */ {0x08, 0x08, 0x3E, 0x08, 0x08},
+    /* Haken (FONT5X7_CHAR_CHECK) */ {0x08, 0x10, 0x20, 0x18, 0x06}
 };
 
 
@@ -133,6 +134,7 @@ static const uint8_t *Font5x7_GetBitmap(char c)
         case '#': return Font5x7_Symbols[7];
         case ',': return Font5x7_Symbols[8];
         case '+': return Font5x7_Symbols[9];
+        case FONT5X7_CHAR_CHECK: return Font5x7_Symbols[10];
         default:  return NULL;
     }
 }
